@@ -32,11 +32,21 @@ app.get('/login', function(req, res) {
     res.setHeader('Content-Type', 'application/json');
 
     db.users.find({"facebookid": facebookid}, function(err, records) {
-        i = records.length; // i should be 1 only since facebookid should be unique
-        while (i--) {
-          var user_id = records[i].__id;
-          console.log("user id is " + user_id);
-          res.end(JSON.stringify({user_id: user_id}), null, 3);
+        j = records.length; // i should be 1 only since facebookid should be unique
+        console.log("j is " + j);
+        while (j--) {
+          var user_id = records[j]._id;
+          console.log("user id is **" + user_id);
+
+          db.users.find({"_id": mongojs.ObjectId (user_id)}, function(err, records) {
+            i = records.length;
+            console.log("i is " + i)
+            while (i--) {
+              console.log ("found user with facebook id " + records[i].facebookid);
+              res.end(JSON.stringify({user_id: user_id}), null, 3);
+            }
+
+          });
         }
     });
     res.end();
