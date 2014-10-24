@@ -1,0 +1,22 @@
+{
+  "name": "kandi-backend-tag",
+  "version": "0.0.3-0",
+  "private": true,
+  "description": "",
+  "main": "web.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "web.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.7.2",
+    "logfmt": "^1.1.2",
+    "mongojs": "0.15.x"
+  },
+  "subdomain": "kandi",
+  "engines": {
+    "node": "0.10.x"
+  }
+}
