@@ -3,55 +3,187 @@ var express = require("express");
 var logfmt = require("logfmt");
 var app = express();
 var url = require('url');
+var bodyParser = require('body-parser');
 
 mongojs = require("mongojs")
 
 var mongoDbUri = "mongodb://nodejitsu:2aea94baf80fb1195c2285ed9f2a976a@troup.mongohq.com:10083/nodejitsudb9860264258";
+var collections = ["users", "tags", "kt_qrcode", "kt_ownership"]
 
 app.use(logfmt.requestLogger());
+app.use(bodyParser.json());
 
 app.get('/', function(req, res) {
   res.send('Hello World!!');
 });
 
-app.get('/login', function(req, res) {
-  console.log ("/login\n")
-  var query = req.query;
-
+app.post('/login', function(req, res) {
+  var query = req.body;
   var facebookid = query.facebookid; // the user's facebook id
   var username = query.username; // the user's name
-
-  var collections = ["users", "tags"]
+  console.log("/login, facebookid is " + facebookid + " :: username is " + username);
   var db = mongojs.connect(mongoDbUri , collections);
+  res.setHeader('Content-Type', 'application/json');
 
-  db.users.save({facebookid: facebookid, username: username}, function(err, saved) {
-    if( err || !saved ) console.log("User not saved");
-    else console.log("User saved");
-    console.log("saved user: " + username + " :facebookid:" + facebookid)
-
-    res.setHeader('Content-Type', 'application/json');
-
-    db.users.find({"facebookid": facebookid}, function(err, records) {
-        j = records.length; // i should be 1 only since facebookid should be unique
-        console.log("j is " + j);
-        while (j--) {
-          var user_id = records[j]._id;
-          console.log("user id is **" + user_id);
-
-          db.users.find({"_id": mongojs.ObjectId (user_id)}, function(err, records) {
-            i = records.length;
-            console.log("i is " + i)
-            while (i--) {
-              console.log ("found user with facebook id " + records[i].facebookid);
-              res.end(JSON.stringify({user_id: user_id}), null, 3);
-            }
-
-          });
-        }
-    });
-    res.end();
+  db.users.find({facebookid: facebookid, username: username}, function(err, records) {
+    if (err) {
+      console.log ("/login, user couldn't be found");
+      res.end(JSON.stringify({success: false}), null, 3);
+    } else {
+      if (records.length == 0) {
+        // they weren't found in the db, so add them
+        db.users.save({facebookid: facebookid, username: username}, function(err, saved) {
+          if( err || !saved ) {
+            console.log("User not saved");
+            res.end(JSON.stringify({success: false}), null, 3);
+          } else {
+            console.log("/login, New User saved");
+            res.end(success: true, JSON.stringify({user_id: saved._id}), null, 3);
+          }
+        });
+      } else {
+        // there was a record of the user, just return their information (user_id)
+        var user_id = records[0]._id;
+        console.log("/login, existing user, returning their user id " + user_id);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({success: true, user_id: user_id}), null, 3);
+      }
+    }
   });
 
+});
+
+app.get('/kandi', function(req, res) {
+  console.log ("GET:/kandi");
+  var query = req.body;
+  var qrcode_id = query.qrcode_id;
+  var user_id = query.user_id;
+  var create_at = query.create_at;
+  var original_create_at = query.original_create_at;
+  var db = mongojs.connect(mongoDbUri , collections);
+
+  db.kt_qrcode.find({"userId": userId}, function(err, records) {
+    if (err) {
+      console.log(err);
+      res.end();
+    } else if (records.length > 0) {
+      // todo ; send back kt_qrcode properties
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({user_id: user_id}), null, 3);
+    }
+  });
+
+});
+
+app.get('/ownership', function(req, res) {
+  console.log ("GET:/ownership");
+  var query = req.body;
+  var qrcode_code = query.qrcode;
+  var qrcode_id = query.qrcode_id;
+  var user_id = query.user_id;
+  var create_at = query.create_at;
+  var original_create_at = query.original_create_at;
+  var db = mongojs.connect(mongoDbUri , collections);
+
+  db.kt_ownership.find({"qrcode_id": qrCodeId, "create_at": original_create_at}, function(err, records) {
+    if (err) {
+      console.log(err);
+      res.end();
+    } else {
+      if (records.length > 0) {
+        // todo ; send back kt_ownership properties
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({user_id: user_id}), null, 3);
+      }
+    }
+  });
+
+});
+
+app.get('/ownership_count', function(req, res) {
+  console.log ("GET:/ownership_count");
+  var query = req.body;
+  var qrcode_code = query.qrcode;
+  var qrcode_id = query.qrcode_id;
+  var user_id = query.user_id;
+  var create_at = query.create_at;
+  var original_create_at = query.original_create_at;
+  var db = mongojs.connect(mongoDbUri , collections);
+
+  db.kt_ownership.find({"qrcode_id": qrCodeId}, function(err, records) {
+    if (err) {
+      console.log(err);
+      res.end();
+    } else {
+      if (records.length >= 5) {
+        limitReached = true;
+      } else {
+        limitReached = false;
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({qrcode_limit_reached: limitReached}), null, 3);
+    }
+  });
+
+});
+
+app.get('/qr', function(req, res) {
+  console.log ("GET:/qr");
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var user_id = query.user_id;
+  var db = mongojs.connect(mongoDbUri , collections);
+
+  res.setHeader('Content-Type', 'application/json');
+  db.kt_qrcode.find({"qrcode": qrcode}, function(err, records) {
+    if (err) {
+      console.log(err);
+      res.end(JSON.stringify({success: false, error: "qrcode wasn't saved. had error trying to find"}), null, 3);
+    } else {
+      if (records.length == 0) {
+        // qr code doesn't exist in database yet
+        db.kt_qrcode.save({qrcode: qrcode, user_id: user_id}, function(err, saved) {
+          if( err || !saved ) {
+            console.log("User not saved");
+            res.end(JSON.stringify({success: false, error: "qrcode wasn't saved. had error saving"}), null, 3);
+          } else {
+            // qr code was saved into to kt_qrcode table
+            // so it definitely doesn't exist in kt_ownership table
+            // placement is from {0,1,2,3,4}, with 0 being the original owner of the qrcode
+            db.kt_ownership.save({qrcode_id: saved._id, user_id: user_id, placement: 0}, function(err, saved) {
+              console.log("qr code was saved into ownership table");
+              res.end(JSON.stringify({success: true, qrcode: qrcode, user_id: user_id, placement: 0, ownership_id: saved._id}), null, 3);
+            });
+          }
+        });
+
+      } else {
+        // qr code already exists in database, we just need to add to the kt_ownership table now
+        var existingQrCode = records [0];
+        db.kt_ownership.find({qrcode_id: existingQrCode._id}, function (err, records) {
+          if (err) {
+            res.end(JSON.stringify({error: "qrcode wasn't saved. had error trying to find in kt_ownership table"}), null, 3);
+          } else {
+            var dbCount = records.length;
+            if (dbCount >= 5) {
+              // there's already been 5 max qr references in the kt_ownership table
+              res.end(JSON.stringify({success: false, limit_reached: true}), null, 3);
+            } else {
+              // there's room to add more to the qrcode table
+              // example: if there's 1 qrcode in the ownership table, the length of db count is 1
+              // while that qrcode will have a placement of 0, so the placement should always be the length of dbCount
+              var placement = dbCount;
+              db.kt_ownership.save({qrcode_id: existingQrCode._id, user_id: user_id, placement: placement}, function(err, saved) {
+                console.log("qr code was saved into ownership table");
+                res.end(JSON.stringify({success: true, qrcode: qrcode, user_id: user_id, placement: placement, ownership_id: saved._id}), null, 3);
+              });
+            }
+          }
+        });
+      }
+    }
+  });
 });
 
 app.get('/test', function(req, res) {
@@ -131,39 +263,29 @@ app.get('/db', function(req, res) {
     res.end();
   });
 
-  /*
-  var uri = "mongodb://demo_user:demo_password@ds027769.mongolab.com:27769/demo_database",
-  db = mongojs.connect(uri, ["demo_collection"]);
-
-  db.demo_collection.find({"color": "red"}, function(err, records) {
-
-    if(err) {
-        console.log("There was an error executing the database query.");
-        response.end();
-        return;
-    }
-
-
-    var html = '<h2>Vehicles with a red finish</h2>',
-        i = records.length;
-
-    while(i--) {
-        html += '<p><b>Name:</b> ' 
-             + records[i].name 
-             + ' <br /><b>Number of wheels:</b> ' 
-             + records[i].wheels 
-             + '<br /><b>Color: </b>' 
-             + records[i].color;
-    }
-
-    res.write(html);
-    res.end();
-  });
-  */
-
 });
 
 var port = Number(80);
 app.listen(port, function() {
   console.log("Listening on " + port);
 });
+
+
+
+// tag table
+
+// list of all your current tags  where you were not the original owner
+// show the previous owner
+
+// show all previous owners
+
+// kandi table
+// list of all your original tags
+// show who currently own it
+// in detail controller 
+// show a list of all previous owners
+
+// -> add friend + send message page
+// - add friend on facebook
+// need add friend 
+
