@@ -8,7 +8,7 @@ var bodyParser = require('body-parser');
 mongojs = require("mongojs")
 
 var mongoDbUri = "mongodb://nodejitsu:2aea94baf80fb1195c2285ed9f2a976a@troup.mongohq.com:10083/nodejitsudb9860264258";
-var collections = ["users", "tags", "kt_qrcode", "kt_ownership"]
+var collections = ["users", "kt_qrcode", "kt_ownership"]
 
 app.use(logfmt.requestLogger());
 app.use(bodyParser.json());
@@ -38,7 +38,7 @@ app.post('/login', function(req, res) {
             res.end(JSON.stringify({success: false}), null, 3);
           } else {
             console.log("/login, New User saved");
-            res.end(success: true, JSON.stringify({user_id: saved._id}), null, 3);
+            res.end(JSON.stringify({success: true, user_id: saved._id}), null, 3);
           }
         });
       } else {
@@ -75,60 +75,7 @@ app.get('/kandi', function(req, res) {
 
 });
 
-app.get('/ownership', function(req, res) {
-  console.log ("GET:/ownership");
-  var query = req.body;
-  var qrcode_code = query.qrcode;
-  var qrcode_id = query.qrcode_id;
-  var user_id = query.user_id;
-  var create_at = query.create_at;
-  var original_create_at = query.original_create_at;
-  var db = mongojs.connect(mongoDbUri , collections);
-
-  db.kt_ownership.find({"qrcode_id": qrCodeId, "create_at": original_create_at}, function(err, records) {
-    if (err) {
-      console.log(err);
-      res.end();
-    } else {
-      if (records.length > 0) {
-        // todo ; send back kt_ownership properties
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({user_id: user_id}), null, 3);
-      }
-    }
-  });
-
-});
-
-app.get('/ownership_count', function(req, res) {
-  console.log ("GET:/ownership_count");
-  var query = req.body;
-  var qrcode_code = query.qrcode;
-  var qrcode_id = query.qrcode_id;
-  var user_id = query.user_id;
-  var create_at = query.create_at;
-  var original_create_at = query.original_create_at;
-  var db = mongojs.connect(mongoDbUri , collections);
-
-  db.kt_ownership.find({"qrcode_id": qrCodeId}, function(err, records) {
-    if (err) {
-      console.log(err);
-      res.end();
-    } else {
-      if (records.length >= 5) {
-        limitReached = true;
-      } else {
-        limitReached = false;
-      }
-
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({qrcode_limit_reached: limitReached}), null, 3);
-    }
-  });
-
-});
-
-app.get('/qr', function(req, res) {
+app.post('/qr', function(req, res) {
   console.log ("GET:/qr");
   var query = req.body;
   var qrcode = query.qrcode;
@@ -138,22 +85,23 @@ app.get('/qr', function(req, res) {
   res.setHeader('Content-Type', 'application/json');
   db.kt_qrcode.find({"qrcode": qrcode}, function(err, records) {
     if (err) {
-      console.log(err);
+      console.log("1" = err);
       res.end(JSON.stringify({success: false, error: "qrcode wasn't saved. had error trying to find"}), null, 3);
     } else {
       if (records.length == 0) {
         // qr code doesn't exist in database yet
         db.kt_qrcode.save({qrcode: qrcode, user_id: user_id}, function(err, saved) {
           if( err || !saved ) {
-            console.log("User not saved");
+            console.log("2 qrcode was not saved");
             res.end(JSON.stringify({success: false, error: "qrcode wasn't saved. had error saving"}), null, 3);
           } else {
             // qr code was saved into to kt_qrcode table
             // so it definitely doesn't exist in kt_ownership table
             // placement is from {0,1,2,3,4}, with 0 being the original owner of the qrcode
-            db.kt_ownership.save({qrcode_id: saved._id, user_id: user_id, placement: 0}, function(err, saved) {
+            var qrCodeId = saved._id;
+            db.kt_ownership.save({qrcode_id: qrCodeId, user_id: user_id, placement: 0}, function(err, saved) {
               console.log("qr code was saved into ownership table");
-              res.end(JSON.stringify({success: true, qrcode: qrcode, user_id: user_id, placement: 0, ownership_id: saved._id}), null, 3);
+              res.end(JSON.stringify({success: true, qrcode_id: qrCodeId, qrcode: qrcode, user_id: user_id, placement: 0, ownership_id: saved._id}), null, 3);
             });
           }
         });
@@ -173,11 +121,24 @@ app.get('/qr', function(req, res) {
               // there's room to add more to the qrcode table
               // example: if there's 1 qrcode in the ownership table, the length of db count is 1
               // while that qrcode will have a placement of 0, so the placement should always be the length of dbCount
-              var placement = dbCount;
-              db.kt_ownership.save({qrcode_id: existingQrCode._id, user_id: user_id, placement: placement}, function(err, saved) {
-                console.log("qr code was saved into ownership table");
-                res.end(JSON.stringify({success: true, qrcode: qrcode, user_id: user_id, placement: placement, ownership_id: saved._id}), null, 3);
+              db.kt_ownership.find({qrcode_id: existingQrCode._id, user_id: user_id}, function(err, records) {
+                if (err) {
+                  res.end(JSON.stringify({success: false, error: "error finiding someone in kt_ownership"}), null, 3);
+                } else {
+                  if (records.length != 0) {
+                    console.log("qr code was not saved into ownership table because it already exists");
+                    res.end(JSON.stringify({success: false, error: "already in the kt_ownership table"}), null, 3);
+                  } else {
+                    var placement = dbCount;
+                    db.kt_ownership.save({qrcode_id: existingQrCode._id, user_id: user_id, placement: placement}, function(err, saved) {
+                      console.log("qr code was saved into ownership table");
+                      res.end(JSON.stringify({success: true, qrcode_id: existingQrCode._id, qrcode: qrcode, user_id: user_id, placement: placement, ownership_id: saved._id}), null, 3);
+                    });
+
+                  }
+                }
               });
+
             }
           }
         });
@@ -186,7 +147,7 @@ app.get('/qr', function(req, res) {
   });
 });
 
-app.get('/test', function(req, res) {
+app.get('/test_HEADERS', function(req, res) {
   console.log('HEADERS: ' + JSON.stringify(res.headers));
   var query = req.query;
   console.log('--------------------------------------');
@@ -237,7 +198,7 @@ app.get('/test', function(req, res) {
 })
 
 
-app.get('/db', function(req, res) {
+app.get('/test_DB', function(req, res) {
   //res.writeHead(200, {"Content-Type": "text/html"});
   //res.send("db");
 
@@ -264,6 +225,353 @@ app.get('/db', function(req, res) {
   });
 
 });
+
+app.post('/originaltags', function(req, res) {
+  console.log("POST/originaltags")
+  var query = req.body;
+  var user_id = query.user_id;
+
+  var db = mongojs.connect(mongoDbUri , collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({user_id: user_id, placement: 0}, function(err, records) {
+    if (err) {
+        res.end(JSON.stringify({success: false, error: "originaltags, error in find"}), null, 3);
+    } else {
+      var length = records.length;
+      if (length == 0) {
+        res.end(JSON.stringify({success: false, error: "originaltags, doesn't have tag in db"}), null, 3);
+      } else {
+        var results = [];
+        var length = records.length;
+        console.log("/originaltags:else:length:" + length);
+        findCurrentOwnerSeries (0, length, records, db, results, function() {
+          res.end(JSON.stringify({success: true, results: results}));
+        });
+      }
+    }
+
+  });
+
+});
+
+// callback
+// has acess to records, results
+function findCurrentOwnerSeries (currentIndex, recordsLength, records, db, results, callback) {
+  if (currentIndex < recordsLength) {
+    console.log("findCurrentOwnerSeries-index:" + currentIndex);
+    item = records[currentIndex];
+    if (item) {
+      findIfOriginal (item, db, function(result) {
+        console.log ("findCurrentOwnerSeries-findIfOriginal-callback");
+        results.push (result);
+        currentIndex = currentIndex + 1;
+        findCurrentOwnerSeries (currentIndex, recordsLength, records, db, results, callback);
+      });
+    } else {
+      callback();
+    }
+  } else {
+    callback();
+  }
+}
+
+function findIfOriginal(tag, db, callback) {
+  if (!tag)
+    return;
+
+  db.kt_ownership.find({qrcode_id: tag.qrcode_id}, function(err, records) {
+    if (err) {
+      console.log ("findIfOriginal:" + err);
+      return;
+    } 
+
+    var length = records.length;
+    for (i = 0; i<length; i++) {
+      var ownershipRow = records[i];
+      if (ownershipRow.placement == (length - 1)) {
+
+        var user_id = ownershipRow.user_id;
+        db.users.find({_id: mongojs.ObjectId (user_id)}, function(err, records) {
+          if (err) {
+            console.log ("db.users.find-error-" + err);
+          } else {
+            if (records.length > 0) {
+              user = records[0];
+              result = {
+                original: {
+                  qrcode_id: tag.qrcode_id,
+                  user_id: tag.user_id,
+                  placement: tag.placement,
+                  ownership_id: tag._id
+                },
+                current: {
+                  qrcode_id: tag.qrcode_id,
+                  user_id: user._id,
+                  user_name: user.username,
+                  facebookid: user.facebookid,
+                }
+              }
+              callback(result);
+            } else { /* error */ }
+          }
+        });
+      }
+    }
+  });
+
+}
+
+
+app.post('/currenttags', function(req, res) {
+  console.log("POST/currenttags")
+  var query = req.body;
+  var user_id = query.user_id;
+
+  var db = mongojs.connect(mongoDbUri , collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({user_id: user_id}, function(err, records) {
+    if (err) {
+        res.end(JSON.stringify({success: false, error: "currenttags, error in find"}), null, 3);
+    } else {
+      if (length == 0) {
+        res.end(JSON.stringify({success: false, error: "currenttags, doesn't have tag in db"}), null, 3);
+      } else {
+        var results = [];
+        var length = records.length;
+        console.log("/currenttags:else:length:" + length);
+        getTagsWhereCurrentOwnerSeries(0, length, records, db, results, function() {
+          var prevUsersResults = [];
+          var length = results.length;
+          getPreviousUsersOfCurrentTags (0, length, results, db, prevUsersResults, function() {
+            res.end(JSON.stringify({success: true, results: prevUsersResults}));
+          });
+        });
+      }
+
+    }
+  });
+
+});
+
+function getPreviousUsersOfCurrentTags (currentIndex, recordsLength, records, db, results, callback) {
+  if (currentIndex < recordsLength) {
+    console.log("getPreviousUsersOfCurrentTags-index:" + currentIndex);
+    item = records[currentIndex];
+    if (item) {
+      findPreviousUser(item, db, function(result) {
+        results.push(result);
+        currentIndex = currentIndex + 1;
+        getPreviousUsersOfCurrentTags (currentIndex, recordsLength, records, db, results, callback);
+      });
+    } else {
+      callback();
+    }
+  } else {
+    callback();
+  }
+}
+
+function findPreviousUser(tag, db, callback) {
+  if (!tag)
+    return;
+
+  if (tag.placement == 0) {
+    // no previous user
+    db.users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
+      if (err) {
+        console.log("findPreviousUser;place==0;err:"+ err);
+        return;
+      } else {
+        if (records.length > 0) {
+          user = records[0];
+          result = {
+            original: {
+              qrcode_id: tag.qrcode_id,
+              user_id: tag.user_id,
+              placement: tag.placement,
+              ownership_id: tag._id
+            },
+            current: {
+              qrcode_id: tag.qrcode_id,
+              user_id: user._id,
+              user_name: user.username,
+              facebookid: user.facebookid,
+            }
+          }
+          callback(result);
+        } else {
+
+        }
+      }
+
+    });
+  }
+
+  db.kt_ownership.find({qrcode_id: tag.qrcode_id, placement: tag.placement-1}, function(err, records) {
+    if (err) {
+      console.log("findPreviousUser:place!=0;err:" + err);
+    } else {
+      if (records.length > 0) {
+        ownershipRec = records[0];
+        // copy paste of above
+
+        db.users.find({_id: mongojs.ObjectId(ownershipRec.user_id)}, function(err, records) {
+          if (err) {
+            console.log("findPreviousUser;place=!0;err:"+ err);
+            return;
+          } else {
+            if (records.length > 0) {
+              user = records[0];
+              result = {
+                original: {
+                  qrcode_id: tag.qrcode_id,
+                  user_id: tag.user_id,
+                  placement: tag.placement,
+                  ownership_id: tag._id
+                },
+                current: {
+                  qrcode_id: tag.qrcode_id,
+                  user_id: user._id,
+                  user_name: user.username,
+                  facebookid: user.facebookid,
+                }
+              }
+              callback(result);
+            } else {
+              console.log("findPreviousUser;place!=0;err;length == 0"+ err);
+              return;
+            }
+          }
+        });
+
+      }
+    }
+
+  });
+}
+
+
+function getTagsWhereCurrentOwnerSeries(currentIndex, recordsLength, records, db, results, callback) {
+  if (currentIndex < recordsLength) {
+    console.log("findCurrentOwnerSeries-index:" + currentIndex);
+    item = records[currentIndex];
+    if (item) {
+      findIfCurrentOwner(item, db, function(result) {
+        console.log ("getTagsWhereCurrentOwnerSeries-findIfCurrentOwner-callback");
+        // we only add the item if the item is owned by the user
+        if (result == true) {
+          results.push(item);
+        }
+        currentIndex = currentIndex + 1;
+        getTagsWhereCurrentOwnerSeries(currentIndex, recordsLength, records, db, results, callback);
+      });
+    } else {
+      callback();
+    }
+  } else {
+    callback();
+  }
+}
+
+function findIfCurrentOwner(tag, db, callback) {
+  console.log("--------findIfCurrentOwner:");
+  if (!tag)
+    callback(false);
+
+  db.kt_ownership.find({qrcode_id: tag.qrcode_id}, function(err, records) {
+    if (err) {
+      console.log("findIfCurrentOwner:" + err);
+      callback(false);
+    }
+
+    var length = records.length;
+    if (tag.placement == length-1)
+      callback(true);
+    else
+      callback(false);
+  });
+}
+
+app.post('/alltags', function(req, res) {
+  console.log("POST/currenttags")
+  var query = req.body;
+  var qrcode_id = query.qrcode_id;
+
+  var db = mongojs.connect(mongoDbUri , collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  // accidentally stored the qrcodes as object ids
+  // not a big deal, so when getting the string from the client, convert to object id
+  db.kt_ownership.find({qrcode_id: mongojs.ObjectId(qrcode_id)}, function(err, records) {
+    if(err) {
+        res.end(JSON.stringify({success: false, error: "alltags, error in find"}), null, 3);
+    } else {
+      if (records.length == 0) {
+        res.end(JSON.stringify({success: false, error: "alltags, no records; qrcode is is " + qrcode_id}), null, 3);
+      } else {
+        var length = records.length;
+        var results = []
+        getUsersForTagSeries(0, length, records, db, results, function() {
+            res.end(JSON.stringify({success: true, results: results}));
+        });
+      }
+    }
+  });
+});
+
+function getUsersForTagSeries(currentIndex, recordsLength, records, db, results, callback) {
+  if (currentIndex < recordsLength) {
+    tag = records[currentIndex];
+    if (tag) {
+      getUserForTag (tag, db, function(result) {
+        results.push (result);
+        currentIndex = currentIndex + 1;
+        getUsersForTagSeries (currentIndex, recordsLength, records, db, results, callback);
+      });
+    } else {
+      callback();
+    }
+  } else {
+    callback();
+  }
+}
+
+function getUserForTag(tag, db, callback) {
+  if (!tag)
+    return;
+
+  db.users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
+    if (err) {
+      console.log("getUserForTag;err:" + err);
+      return;
+    } else {
+        if (records.length > 0) {
+          user = records[0];
+          result = {
+            original: {
+              qrcode_id: tag.qrcode_id,
+              user_id: tag.user_id,
+              placement: tag.placement,
+              ownership_id: tag._id
+            },
+            current: {
+              qrcode_id: tag.qrcode_id,
+              user_id: user._id,
+              user_name: user.username,
+              facebookid: user.facebookid,
+            }
+          }
+          callback(result);
+        } else {
+          console.log("getUserForTag;" + err);
+          return;
+        }
+    }
+
+  });
+}
 
 var port = Number(80);
 app.listen(port, function() {

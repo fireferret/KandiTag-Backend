@@ -1,6 +1,6 @@
 {
   "name": "kandi-backend-tag",
-  "version": "0.0.37-0",
+  "version": "0.0.64-0",
   "private": true,
   "description": "",
   "main": "web.js",
