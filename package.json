@@ -1,6 +1,6 @@
 {
   "name": "kandi-backend-tag",
-  "version": "0.0.64-0",
+  "version": "0.0.64-68",
   "private": true,
   "description": "",
   "main": "web.js",
@@ -14,7 +14,8 @@
     "express": "^4.7.2",
     "logfmt": "^1.1.2",
     "mongojs": "0.15.x",
-    "body-parser": "1.9.x"
+    "body-parser": "1.9.x",
+    "apn": "1.6.x"
   },
   "subdomain": "kandi",
   "engines": {

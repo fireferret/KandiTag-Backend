@@ -7,8 +7,8 @@ var bodyParser = require('body-parser');
 
 mongojs = require("mongojs")
 
-var mongoDbUri = "mongodb://nodejitsu:2aea94baf80fb1195c2285ed9f2a976a@troup.mongohq.com:10083/nodejitsudb9860264258";
-var collections = ["users", "kt_qrcode", "kt_ownership"]
+var mongoDbUri = "mongodb://nodejitsu:7099899734d1037edc30bc5b2a90ca84@troup.mongohq.com:10043/nodejitsudb1189483832";
+var collections = ["users", "kt_qrcode", "kt_ownership", "kt_message", "kt_convo"]
 
 app.use(logfmt.requestLogger());
 app.use(bodyParser.json());
@@ -21,30 +21,30 @@ app.post('/login', function(req, res) {
   var query = req.body;
   var facebookid = query.facebookid; // the user's facebook id
   var username = query.username; // the user's name
-  console.log("/login, facebookid is " + facebookid + " :: username is " + username);
+  //console.log("/login, facebookid is " + facebookid + " :: username is " + username);
   var db = mongojs.connect(mongoDbUri , collections);
   res.setHeader('Content-Type', 'application/json');
 
   db.users.find({facebookid: facebookid, username: username}, function(err, records) {
     if (err) {
-      console.log ("/login, user couldn't be found");
+      //console.log ("/login, user couldn't be found");
       res.end(JSON.stringify({success: false}), null, 3);
     } else {
       if (records.length == 0) {
         // they weren't found in the db, so add them
         db.users.save({facebookid: facebookid, username: username}, function(err, saved) {
           if( err || !saved ) {
-            console.log("User not saved");
+            //console.log("User not saved");
             res.end(JSON.stringify({success: false}), null, 3);
           } else {
-            console.log("/login, New User saved");
+            //console.log("/login, New User saved");
             res.end(JSON.stringify({success: true, user_id: saved._id}), null, 3);
           }
         });
       } else {
         // there was a record of the user, just return their information (user_id)
         var user_id = records[0]._id;
-        console.log("/login, existing user, returning their user id " + user_id);
+        //console.log("/login, existing user, returning their user id " + user_id);
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({success: true, user_id: user_id}), null, 3);
       }
@@ -54,7 +54,7 @@ app.post('/login', function(req, res) {
 });
 
 app.get('/kandi', function(req, res) {
-  console.log ("GET:/kandi");
+  //console.log ("GET:/kandi");
   var query = req.body;
   var qrcode_id = query.qrcode_id;
   var user_id = query.user_id;
@@ -64,7 +64,7 @@ app.get('/kandi', function(req, res) {
 
   db.kt_qrcode.find({"userId": userId}, function(err, records) {
     if (err) {
-      console.log(err);
+      //console.log(err);
       res.end();
     } else if (records.length > 0) {
       // todo ; send back kt_qrcode properties
@@ -76,7 +76,7 @@ app.get('/kandi', function(req, res) {
 });
 
 app.post('/qr', function(req, res) {
-  console.log ("GET:/qr");
+  console.log ("POST:/qr");
   var query = req.body;
   var qrcode = query.qrcode;
   var user_id = query.user_id;
@@ -85,22 +85,22 @@ app.post('/qr', function(req, res) {
   res.setHeader('Content-Type', 'application/json');
   db.kt_qrcode.find({"qrcode": qrcode}, function(err, records) {
     if (err) {
-      console.log("1" = err);
+      //console.log("1" = err);
       res.end(JSON.stringify({success: false, error: "qrcode wasn't saved. had error trying to find"}), null, 3);
     } else {
       if (records.length == 0) {
         // qr code doesn't exist in database yet
         db.kt_qrcode.save({qrcode: qrcode, user_id: user_id}, function(err, saved) {
           if( err || !saved ) {
-            console.log("2 qrcode was not saved");
+            //console.log("2 qrcode was not saved");
             res.end(JSON.stringify({success: false, error: "qrcode wasn't saved. had error saving"}), null, 3);
           } else {
             // qr code was saved into to kt_qrcode table
             // so it definitely doesn't exist in kt_ownership table
-            // placement is from {0,1,2,3,4}, with 0 being the original owner of the qrcode
+            // placement is from {0,1,2,3,4}, with 0 being the original ownership of the qrcode
             var qrCodeId = saved._id;
             db.kt_ownership.save({qrcode_id: qrCodeId, user_id: user_id, placement: 0}, function(err, saved) {
-              console.log("qr code was saved into ownership table");
+              //console.log("qr code was saved into ownership table");
               res.end(JSON.stringify({success: true, qrcode_id: qrCodeId, qrcode: qrcode, user_id: user_id, placement: 0, ownership_id: saved._id}), null, 3);
             });
           }
@@ -123,15 +123,15 @@ app.post('/qr', function(req, res) {
               // while that qrcode will have a placement of 0, so the placement should always be the length of dbCount
               db.kt_ownership.find({qrcode_id: existingQrCode._id, user_id: user_id}, function(err, records) {
                 if (err) {
-                  res.end(JSON.stringify({success: false, error: "error finiding someone in kt_ownership"}), null, 3);
+                  res.end(JSON.stringify({success: false, error: "error finding someone in kt_ownership"}), null, 3);
                 } else {
                   if (records.length != 0) {
-                    console.log("qr code was not saved into ownership table because it already exists");
-                    res.end(JSON.stringify({success: false, error: "already in the kt_ownership table"}), null, 3);
+                    //console.log("qr code was not saved into ownership table because it already exists");
+                    res.end(JSON.stringify({success: false, already_owned: true}), null, 3);
                   } else {
                     var placement = dbCount;
                     db.kt_ownership.save({qrcode_id: existingQrCode._id, user_id: user_id, placement: placement}, function(err, saved) {
-                      console.log("qr code was saved into ownership table");
+                      //console.log("qr code was saved into ownership table");
                       res.end(JSON.stringify({success: true, qrcode_id: existingQrCode._id, qrcode: qrcode, user_id: user_id, placement: placement, ownership_id: saved._id}), null, 3);
                     });
 
@@ -148,9 +148,9 @@ app.post('/qr', function(req, res) {
 });
 
 app.get('/test_HEADERS', function(req, res) {
-  console.log('HEADERS: ' + JSON.stringify(res.headers));
+  //console.log('HEADERS: ' + JSON.stringify(res.headers));
   var query = req.query;
-  console.log('--------------------------------------');
+  //console.log('--------------------------------------');
   var resultStr = 'START:\n' 
            + ' app_id= ' + query.app_id + ' \n'
            + ' app_token= ' + query.app_token + ' \n'
@@ -194,7 +194,7 @@ app.get('/test_HEADERS', function(req, res) {
            + ' END\n------------------------------------------------';
 
   res.send(resultStr);
-  console.log(resultStr)
+  //console.log(resultStr)
 })
 
 
@@ -208,7 +208,7 @@ app.get('/test_DB', function(req, res) {
   db.users.find({sex: "female"}, function(err, users) {
     if( err || !users) console.log("No female users found");
     else users.forEach( function(femaleUser) {
-      console.log(femaleUser);
+      //console.log(femaleUser);
     });
   });
 
@@ -244,7 +244,7 @@ app.post('/originaltags', function(req, res) {
       } else {
         var results = [];
         var length = records.length;
-        console.log("/originaltags:else:length:" + length);
+        //console.log("/originaltags:else:length:" + length);
         findCurrentOwnerSeries (0, length, records, db, results, function() {
           res.end(JSON.stringify({success: true, results: results}));
         });
@@ -259,11 +259,11 @@ app.post('/originaltags', function(req, res) {
 // has acess to records, results
 function findCurrentOwnerSeries (currentIndex, recordsLength, records, db, results, callback) {
   if (currentIndex < recordsLength) {
-    console.log("findCurrentOwnerSeries-index:" + currentIndex);
+    //console.log("findCurrentOwnerSeries-index:" + currentIndex);
     item = records[currentIndex];
     if (item) {
       findIfOriginal (item, db, function(result) {
-        console.log ("findCurrentOwnerSeries-findIfOriginal-callback");
+        //console.log ("findCurrentOwnerSeries-findIfOriginal-callback");
         results.push (result);
         currentIndex = currentIndex + 1;
         findCurrentOwnerSeries (currentIndex, recordsLength, records, db, results, callback);
@@ -282,7 +282,7 @@ function findIfOriginal(tag, db, callback) {
 
   db.kt_ownership.find({qrcode_id: tag.qrcode_id}, function(err, records) {
     if (err) {
-      console.log ("findIfOriginal:" + err);
+      //console.log ("findIfOriginal:" + err);
       return;
     } 
 
@@ -331,7 +331,7 @@ app.post('/currenttags', function(req, res) {
   var db = mongojs.connect(mongoDbUri , collections);
   res.setHeader('Content-Type', 'application/json');
 
-  db.kt_ownership.find({user_id: user_id}, function(err, records) {
+  db.kt_ownership.find({user_id: user_id, placement: !0}, function(err, records) {
     if (err) {
         res.end(JSON.stringify({success: false, error: "currenttags, error in find"}), null, 3);
     } else {
@@ -340,7 +340,7 @@ app.post('/currenttags', function(req, res) {
       } else {
         var results = [];
         var length = records.length;
-        console.log("/currenttags:else:length:" + length);
+        //console.log("/currenttags:else:length:" + length);
         getTagsWhereCurrentOwnerSeries(0, length, records, db, results, function() {
           var prevUsersResults = [];
           var length = results.length;
@@ -357,7 +357,7 @@ app.post('/currenttags', function(req, res) {
 
 function getPreviousUsersOfCurrentTags (currentIndex, recordsLength, records, db, results, callback) {
   if (currentIndex < recordsLength) {
-    console.log("getPreviousUsersOfCurrentTags-index:" + currentIndex);
+    //console.log("getPreviousUsersOfCurrentTags-index:" + currentIndex);
     item = records[currentIndex];
     if (item) {
       findPreviousUser(item, db, function(result) {
@@ -381,7 +381,7 @@ function findPreviousUser(tag, db, callback) {
     // no previous user
     db.users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
       if (err) {
-        console.log("findPreviousUser;place==0;err:"+ err);
+        //console.log("findPreviousUser;place==0;err:"+ err);
         return;
       } else {
         if (records.length > 0) {
@@ -411,7 +411,7 @@ function findPreviousUser(tag, db, callback) {
 
   db.kt_ownership.find({qrcode_id: tag.qrcode_id, placement: tag.placement-1}, function(err, records) {
     if (err) {
-      console.log("findPreviousUser:place!=0;err:" + err);
+      //console.log("findPreviousUser:place!=0;err:" + err);
     } else {
       if (records.length > 0) {
         ownershipRec = records[0];
@@ -419,7 +419,7 @@ function findPreviousUser(tag, db, callback) {
 
         db.users.find({_id: mongojs.ObjectId(ownershipRec.user_id)}, function(err, records) {
           if (err) {
-            console.log("findPreviousUser;place=!0;err:"+ err);
+            //console.log("findPreviousUser;place=!0;err:"+ err);
             return;
           } else {
             if (records.length > 0) {
@@ -440,7 +440,7 @@ function findPreviousUser(tag, db, callback) {
               }
               callback(result);
             } else {
-              console.log("findPreviousUser;place!=0;err;length == 0"+ err);
+              //console.log("findPreviousUser;place!=0;err;length == 0"+ err);
               return;
             }
           }
@@ -455,11 +455,11 @@ function findPreviousUser(tag, db, callback) {
 
 function getTagsWhereCurrentOwnerSeries(currentIndex, recordsLength, records, db, results, callback) {
   if (currentIndex < recordsLength) {
-    console.log("findCurrentOwnerSeries-index:" + currentIndex);
+    //console.log("findCurrentOwnerSeries-index:" + currentIndex);
     item = records[currentIndex];
     if (item) {
       findIfCurrentOwner(item, db, function(result) {
-        console.log ("getTagsWhereCurrentOwnerSeries-findIfCurrentOwner-callback");
+        //console.log ("getTagsWhereCurrentOwnerSeries-findIfCurrentOwner-callback");
         // we only add the item if the item is owned by the user
         if (result == true) {
           results.push(item);
@@ -476,13 +476,13 @@ function getTagsWhereCurrentOwnerSeries(currentIndex, recordsLength, records, db
 }
 
 function findIfCurrentOwner(tag, db, callback) {
-  console.log("--------findIfCurrentOwner:");
+  //console.log("--------findIfCurrentOwner:");
   if (!tag)
     callback(false);
 
   db.kt_ownership.find({qrcode_id: tag.qrcode_id}, function(err, records) {
     if (err) {
-      console.log("findIfCurrentOwner:" + err);
+      //console.log("findIfCurrentOwner:" + err);
       callback(false);
     }
 
@@ -495,7 +495,7 @@ function findIfCurrentOwner(tag, db, callback) {
 }
 
 app.post('/alltags', function(req, res) {
-  console.log("POST/currenttags")
+  //console.log("POST/alltags")
   var query = req.body;
   var qrcode_id = query.qrcode_id;
 
@@ -544,7 +544,7 @@ function getUserForTag(tag, db, callback) {
 
   db.users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
     if (err) {
-      console.log("getUserForTag;err:" + err);
+      //console.log("getUserForTag;err:" + err);
       return;
     } else {
         if (records.length > 0) {
@@ -565,13 +565,215 @@ function getUserForTag(tag, db, callback) {
           }
           callback(result);
         } else {
-          console.log("getUserForTag;" + err);
+          //console.log("getUserForTag;" + err);
           return;
         }
     }
 
   });
 }
+
+//messaging
+app.post('/sendmessage', function(req, res) {
+	var query = req.body;
+	var sender = query.sender;
+	var recipient = query.recipient;
+	var message = query.message;
+	var timestamp = query.timestamp;
+	//console.log("/sendmessage, " + sender + " says " + message + " to " + recipient + " at " + timestamp);
+	var db = mongojs.connect(mongoDbUri, collections);
+	res.setHeader('Content-Type', 'application/json');
+
+	db.kt_message.save({sender: sender, recipient: recipient, message: message, timestamp: timestamp}, function(err, saved) {
+		if (err || !saved) {
+			//console.log("message not send");
+			res.end(JSON.stringify({success: false}), null, 3);
+		} else {
+			//console.log("/sendmessage,  message sent");
+			res.end(JSON.stringify({success: true}), null, 3);
+		}
+	});
+});
+
+app.post('/saveconvo', function(req, res) {
+	var query = req.body;
+	var sender = query.sender;
+	var recipient = query.recipient;
+	var message = query.message;
+	var myname = query.myname;
+	var username = query.username;
+	var db = mongojs.connect(mongoDbUri, collections);
+	res.setHeader('Content-Type', 'application/json');
+
+	db.kt_convo.find({$or: [{partyA: sender, partyB: recipient, nameA: myname, nameB: username}, {partyA: recipient, partyB: sender, nameA: username, nameB: myname}]}, function(err, records) {
+		if (err) {
+			res.end(JSON.stringify({success: false}), null, 3);
+		} else {
+			if (records.length == 0) {
+				db.kt_convo.save({partyA: sender, partyB: recipient, message: message, nameA: myname, nameB: username}, function(err, saved) {
+					if (err || !saved) {
+						res.end(JSON.stringify({success: false}), null, 3);
+					} else {
+						res.end(JSON.stringify({success: true}), null, 3);
+					}
+				});
+			} else {
+				db.kt_convo.update({$or: [{partyA: sender, partyB: recipient}, {partyB: sender, partyA: recipient}]}, {partyA: sender, partyB: recipient, message: message, nameA: myname, nameB: username}, function(err, saved) {
+					if (err || !saved) {
+						res.end(JSON.stringify({success: false}), null, 3);
+					} else {
+						res.end(JSON.stringify({success: true}), null, 3);
+					}
+				});
+			}
+		}
+	});
+});
+
+app.post('/allmessages', function(req, res) {
+	console.log("POST/allmessages")
+	var query = req.body;
+	var sender = query.sender;
+
+	var db = mongojs.connect(mongoDbUri, collections);
+	res.setHeader('Content-Type', 'application/json');
+
+	db.kt_convo.find({$or: [{partyA: sender}, {partyB: sender}]}, function(err, records) {
+		if (err) {
+			res.end(JSON.stringify({success: false, error: "allmessages, error in find"}), null, 3);
+		} else {
+			var length = records.length;
+			if (length == 0) {
+				res.end(JSON.stringify({success: false, error: "allmessages, doesn't contain anything"}), null, 3);
+			} else {
+				var results = [];
+				var length = records.length;
+				//console.log("/allmessages:else:length:" + length);
+				findMessagesSeries (0, length, records, db, results, function() {
+					res.end(JSON.stringify({success: true, results: results}));
+				});
+			}
+		}
+	});
+});
+
+function findMessagesSeries (currentIndex, recordsLength, records, db, results, callback) {
+	if (currentIndex < recordsLength) {
+		item = records[currentIndex];
+		if (item) {
+			findMessages (item, db, function(result) {
+				results.push (result);
+				currentIndex = currentIndex + 1;
+				findMessagesSeries (currentIndex, recordsLength, records, db, results, callback);
+			});
+		} else {
+			callback();
+		}
+	} else {
+		callback();
+	}
+}
+
+function findMessages (list, db, callback) {
+	if (!list)
+		return;
+
+	db.kt_convo.find({$or: [{partyA: list.partyA}, {partyB: list.partyA}]}, function(err, records) {
+		if (err) {
+			return;
+		} else {
+			if (records.length > 0) {
+				result = {
+					convo: {
+						partyA: list.partyA,
+						partyB: list.partyB,
+						message: list.message,
+						nameA: list.nameA,
+						nameB: list.nameB
+					}
+				}
+				callback(result);
+			} else {
+				return;
+			}
+		}
+	});
+}
+
+app.post('/messagehistory', function(req, res) {
+	//console.log("POST/messagehistory")
+	var query = req.body;
+	var recipient = query.recipient;
+	var sender = query.sender;
+
+	var db = mongojs.connect(mongoDbUri, collections);
+	res.setHeader('Content-Type', 'application/json');
+
+	db.kt_message.find({$or: [{recipient: recipient, sender: sender}, {recipient: sender, sender: recipient}]}, function(err, records) {
+		if (err){
+			res.end(JSON.stringify({success: false, error: "messagehistory, error in find"}), null, 3);
+		} else {
+			var length = records.length;
+			if (length == 0) {
+				res.end(JSON.stringify({success: false, error: "messagehistory, doesn't have any messages in db"}), null, 3);
+			} else {
+				var results = [];
+				var length = records.length;
+				//console.log("/messagehistory:else:length:" + length);
+				findMessageHistorySeries(0, length, records, db, results, function() {
+					res.end(JSON.stringify({success: true, results: results}));
+				});
+			}
+		}
+	});
+});
+
+function findMessageHistorySeries (currentIndex, recordsLength, records, db, results, callback) {
+	if (currentIndex < recordsLength) {
+		//console.log("findMessageHistorySeries-index:" + currentIndex);
+		item = records[currentIndex];
+		if (item) {
+			findMessageHistory (item, db, function(result) {
+				//console.log("findMessageHistorySeries-findMessage-callback");
+				results.push (result);
+				currentIndex = currentIndex + 1;
+				findMessageHistorySeries (currentIndex, recordsLength, records, db, results, callback);
+			});
+		} else {
+			callback();
+		}
+	} else {
+		callback();
+	}
+}
+
+function findMessageHistory (item, db, callback) {
+	if (!item)
+		return;
+
+	db.kt_message.find({$or: [{recipient: item.recipient}, {recipient: item.sender}]}, function(err, records) {
+		if (err) {
+			//console.log("findMessage:" + err);
+			return;
+		} else {
+			if (records.length > 0) {
+				result = {
+					messagehistory: {
+						message: item.message,
+						sender: item.sender,
+						recipient: item.recipient,
+						timestamp: item.timestamp
+					}
+				}
+				callback(result);
+			} else {
+				//console.log("findMessage:" + err);
+				return;
+			}
+		}
+	});
+}
+
 
 var port = Number(80);
 app.listen(port, function() {
