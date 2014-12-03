@@ -8,7 +8,7 @@ var bodyParser = require('body-parser');
 mongojs = require("mongojs")
 
 var mongoDbUri = "mongodb://nodejitsu:7099899734d1037edc30bc5b2a90ca84@troup.mongohq.com:10043/nodejitsudb1189483832";
-var collections = ["users", "kt_qrcode", "kt_ownership", "kt_message", "kt_convo"]
+var collections = ["users", "kt_qrcode", "kt_ownership", "kt_message", "kt_convo", "kt_token"]
 
 app.use(logfmt.requestLogger());
 app.use(bodyParser.json());
@@ -52,6 +52,40 @@ app.post('/login', function(req, res) {
   });
 
 });
+
+app.post('/token', function(req, res) {
+	console.log("POST:/token");
+	var query = req.body;
+	var token = query.token;
+	var facebookid = query.facebookid;
+	var db = mongojs.connect(mongoDbUri, collections);
+
+	res.setHeader('Content-Type', 'application/json');
+	db.kt_token.find({facebookid: facebookid}, function(err, records) {
+		if (err) {
+			res.end(JSON.stringify({success: false}), null, 3);
+		} else {
+			if (records.length == 0) {
+				db.kt_token.save({facebookid: facebookid, token: token}, function(err, saved) {
+					if (err || !saved) {
+						res.end(JSON.stringify({success: false}), null, 3);
+					} else {
+						res.end(JSON.stringify({success: true}), null, 3);
+					}
+				});
+			} else {
+				db.kt_token.update({facebookid: facebookid}, {facebookid: facebookid, token: token}, function(err, saved) {
+					if (err || !saved) {
+						res.end(JSON.stringify({success: false}), null, 3);
+					} else {
+						res.end(JSON.stringify({success: true}), null, 3);
+					}
+				});
+			}
+		}
+	});
+});
+
 
 app.get('/kandi', function(req, res) {
   //console.log ("GET:/kandi");
@@ -331,7 +365,8 @@ app.post('/currenttags', function(req, res) {
   var db = mongojs.connect(mongoDbUri , collections);
   res.setHeader('Content-Type', 'application/json');
 
-  db.kt_ownership.find({user_id: user_id, placement: !0}, function(err, records) {
+  db.kt_ownership.find({$or: [{user_id: user_id, placement: 1}, {user_id: user_id, placement: 2}, {user_id: user_id, placement: 3}, {user_id: user_id, placement: 4}, {user_id: user_id, placement: 5}]}
+, function(err, records) {
     if (err) {
         res.end(JSON.stringify({success: false, error: "currenttags, error in find"}), null, 3);
     } else {
@@ -774,6 +809,30 @@ function findMessageHistory (item, db, callback) {
 	});
 }
 
+app.post ('/previouspic', function(req, res) {
+	console.log("POST:/previouspic");
+	var query = req.body;
+	var qrcode = query.qrcode;
+	var db = mongojs.connect(mongoDbUri, collections);
+
+	res.setHeader('Content-Type', 'application/json');
+	db.kt_qrcode.find({qrcode: qrcode}, function(err, records) {
+		if (err) {
+			res.end(JSON.stringify({success: false, error: "error in find"}), null, 3);
+		} else {
+			var length = records.length;
+			if (length == 0) {
+				res.end(JSON.stringify({success: false, error: "no previous owner"}), null, 3);
+			} else {
+				var results = [];
+				var length = records.length;
+				getUsersForTagSeries (0, length, records, db, results, function() {
+					res.end(JSON.stringify({success: true, results: results}));
+				});
+			}
+		}
+	});
+});
 
 var port = Number(80);
 app.listen(port, function() {
