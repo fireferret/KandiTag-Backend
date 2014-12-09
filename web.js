@@ -5,6 +5,9 @@ var app = express();
 var url = require('url');
 var bodyParser = require('body-parser');
 
+var apn = require('apn');
+
+
 mongojs = require("mongojs")
 
 var mongoDbUri = "mongodb://nodejitsu:7099899734d1037edc30bc5b2a90ca84@troup.mongohq.com:10043/nodejitsudb1189483832";
@@ -58,6 +61,8 @@ app.post('/token', function(req, res) {
 	var query = req.body;
 	var token = query.token;
 	var facebookid = query.facebookid;
+	var username = query.username;
+	var badgenum = query.badgenum;
 	var db = mongojs.connect(mongoDbUri, collections);
 
 	res.setHeader('Content-Type', 'application/json');
@@ -66,7 +71,7 @@ app.post('/token', function(req, res) {
 			res.end(JSON.stringify({success: false}), null, 3);
 		} else {
 			if (records.length == 0) {
-				db.kt_token.save({facebookid: facebookid, token: token}, function(err, saved) {
+				db.kt_token.save({facebookid: facebookid, token: token, username: username, badgenum: badgenum}, function(err, saved) {
 					if (err || !saved) {
 						res.end(JSON.stringify({success: false}), null, 3);
 					} else {
@@ -74,7 +79,7 @@ app.post('/token', function(req, res) {
 					}
 				});
 			} else {
-				db.kt_token.update({facebookid: facebookid}, {facebookid: facebookid, token: token}, function(err, saved) {
+				db.kt_token.update({facebookid: facebookid}, {facebookid: facebookid, token: token, username: username, badgenum: badgenum}, function(err, saved) {
 					if (err || !saved) {
 						res.end(JSON.stringify({success: false}), null, 3);
 					} else {
@@ -547,7 +552,7 @@ app.post('/alltags', function(req, res) {
         res.end(JSON.stringify({success: false, error: "alltags, no records; qrcode is is " + qrcode_id}), null, 3);
       } else {
         var length = records.length;
-        var results = []
+        var results = [];
         getUsersForTagSeries(0, length, records, db, results, function() {
             res.end(JSON.stringify({success: true, results: results}));
         });
@@ -615,6 +620,14 @@ app.post('/sendmessage', function(req, res) {
 	var recipient = query.recipient;
 	var message = query.message;
 	var timestamp = query.timestamp;
+
+	var options = {
+	"cert": 'cert.pem',
+	"key": 'key.pem',
+	"production": false,
+	};
+	var apnConnection = new apn.Connection(options);
+
 	//console.log("/sendmessage, " + sender + " says " + message + " to " + recipient + " at " + timestamp);
 	var db = mongojs.connect(mongoDbUri, collections);
 	res.setHeader('Content-Type', 'application/json');
@@ -625,6 +638,23 @@ app.post('/sendmessage', function(req, res) {
 			res.end(JSON.stringify({success: false}), null, 3);
 		} else {
 			//console.log("/sendmessage,  message sent");
+			db.kt_token.find({facebookid: recipient}, function(err, records) {
+				if (err) {
+					console.log("error finding push token");
+				} else {
+					var token = records[0].token;
+					var name = records[0].username;
+					var badgenum = records[0].badgenum;
+					var myDevice = new apn.Device(token);
+						var note = new apn.Notification();
+						note.badge =  badgenum + 1;
+						console.log("total badge count = " + note.badge);
+						note.sound = "ping.aiff";
+						note.alert = "New Message from " + name;
+						note.payload = {'messageFrom': name};
+						apnConnection.pushNotification(note, myDevice);
+				}
+			});
 			res.end(JSON.stringify({success: true}), null, 3);
 		}
 	});
@@ -813,26 +843,122 @@ app.post ('/previouspic', function(req, res) {
 	console.log("POST:/previouspic");
 	var query = req.body;
 	var qrcode = query.qrcode;
+	var options = {"sort": [['placement', -1]]};
 	var db = mongojs.connect(mongoDbUri, collections);
-
 	res.setHeader('Content-Type', 'application/json');
 	db.kt_qrcode.find({qrcode: qrcode}, function(err, records) {
 		if (err) {
 			res.end(JSON.stringify({success: false, error: "error in find"}), null, 3);
 		} else {
-			var length = records.length;
-			if (length == 0) {
+			if (records.length == 0) {
 				res.end(JSON.stringify({success: false, error: "no previous owner"}), null, 3);
 			} else {
-				var results = [];
-				var length = records.length;
-				getUsersForTagSeries (0, length, records, db, results, function() {
-					res.end(JSON.stringify({success: true, results: results}));
+				var qrcode_id = records[0]._id;
+				console.log("qrcode_id:" + qrcode_id);
+				db.kt_ownership.find({qrcode_id: qrcode_id}, options, function(err, recordss) {
+					if (err) {
+						res.end(JSON.stringify({success: false}), null, 3);
+					} else {
+						if (records.length == 0) {
+							res.end(JSON.stringify({success: false}), null, 3);
+						} else {
+							var user_id = recordss[0].user_id;
+							console.log("user_id:" + user_id);
+							db.users.find({_id: mongojs.ObjectId(user_id)}, function(err, record) {
+								if (err) {
+									res.end(JSON.stringify({success: false}), null, 3);
+								} else {
+									if (records.length == 0) {
+										res.end(JSON.stringify({success: false}), null, 3);
+									} else {
+										var fbidforpic = record[0].facebookid;
+										console.log("fbidforpic:" + fbidforpic);
+										res.setHeader('Content-Type', 'application/json');
+										res.end(JSON.stringify({success: true, fbidforpic: fbidforpic}), null, 3);
+									}
+								}
+							});
+						}
+					}
 				});
 			}
 		}
 	});
 });
+
+app.post('/previoususerlist', function(req, res) {
+	console.log("POST:/previoususerlist");
+	var query = req.body;
+	var qrcode = query.qrcode;
+	var db = mongojs.connect(mongoDbUri, collections);
+	res.setHeader('Content-Type', 'application/json');
+	db.kt_qrcode.find({qrcode: qrcode}, function(err, records) {
+		if (err) {
+			res.end(JSON.stringify({success: false}), null, 3);
+		} else {
+			if (records.length == 0) {
+				res.end(JSON.stringify({success: false}), null, 3);
+			} else {
+				var qrcode_id = records[0]._id;
+				console.log("qrcode_id: " + qrcode_id);
+				db.kt_ownership.find({qrcode_id: qrcode_id}, function(err, recordss) {
+					if (err) {
+						res.end(JSON.stringify({success: false}), null, 3);
+					} else {
+						if (recordss.length == 0) {
+							res.end(JSON.stringify({success: false}), null, 3);
+						} else {
+							var results = [];
+							console.log("results:" + results);
+							var length = recordss.length;
+							findPreviousUserListSeries (0, length, recordss, db, results, function() {
+								res.end(JSON.stringify({success: true, results: results}));
+							});
+						}
+					}
+				});
+			}
+		}
+	});
+});
+
+function findPreviousUserListSeries(currentIndex, recordsLength, recordss, db, results, callback) {
+	if (currentIndex < recordsLength) {
+		item = recordss[currentIndex];
+		if (item) {
+			findPreviousUserList (item, db, function(result) {
+				results.push (result);
+				currentIndex = currentIndex + 1;
+				findPreviousUserListSeries (currentIndex, recordsLength, recordss, db, results, callback);
+			});
+		} else {
+			callback();
+		}
+	} else {
+		callback();
+	}
+}
+
+function findPreviousUserList (item, db, callback) {
+	if (!item)
+		return;
+	db.users.find({_id: mongojs.ObjectId(item.user_id)}, function(err, records) {
+		if (err) {
+			return;
+		} else {
+			if (records.length > 0) {
+				user = records[0];
+				result = {
+					current: {
+						facebookid: user.facebookid
+					}
+				}
+				callback(result);
+			}
+		}
+	});
+}
+
 
 var port = Number(80);
 app.listen(port, function() {
