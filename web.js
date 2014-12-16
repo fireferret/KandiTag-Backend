@@ -57,7 +57,7 @@ app.post('/login', function(req, res) {
 });
 
 app.post('/token', function(req, res) {
-	console.log("POST:/token");
+	//console.log("POST:/token");
 	var query = req.body;
 	var token = query.token;
 	var facebookid = query.facebookid;
@@ -115,11 +115,19 @@ app.get('/kandi', function(req, res) {
 });
 
 app.post('/qr', function(req, res) {
-  console.log ("POST:/qr");
+  //console.log ("POST:/qr");
   var query = req.body;
   var qrcode = query.qrcode;
   var user_id = query.user_id;
+  var username = query.username;
   var db = mongojs.connect(mongoDbUri , collections);
+
+  var options = {
+	"cert": 'cert.pem',
+	"key": 'key.pem',
+	"production": false,
+	};
+	var apnConnection = new apn.Connection(options);
 
   res.setHeader('Content-Type', 'application/json');
   db.kt_qrcode.find({"qrcode": qrcode}, function(err, records) {
@@ -153,6 +161,9 @@ app.post('/qr', function(req, res) {
             res.end(JSON.stringify({error: "qrcode wasn't saved. had error trying to find in kt_ownership table"}), null, 3);
           } else {
             var dbCount = records.length;
+            var dbCountminusOne = (dbCount-1);
+            console.log("currentPlacement: " + dbCount);
+            console.log("previousPlacement: " + dbCountminusOne);
             if (dbCount >= 5) {
               // there's already been 5 max qr references in the kt_ownership table
               res.end(JSON.stringify({success: false, limit_reached: true}), null, 3);
@@ -171,6 +182,40 @@ app.post('/qr', function(req, res) {
                     var placement = dbCount;
                     db.kt_ownership.save({qrcode_id: existingQrCode._id, user_id: user_id, placement: placement}, function(err, saved) {
                       //console.log("qr code was saved into ownership table");
+
+                      db.kt_ownership.find({qrcode_id: existingQrCode._id, placement: dbCountminusOne}, function(err, rec) {
+                      	if (err) {
+                      		console.log("error");
+                      	} else {
+                      		var user = rec[0].user_id;
+                      		db.users.find({_id: mongojs.ObjectId(user)}, function(err, recc) {
+                      			if (err) {
+                      				console.log("another error");
+                      			} else {
+                      				var fbidpush = recc[0].facebookid;
+
+                      				db.kt_token.find({facebookid: fbidpush}, function(err, records) {
+										if (err) {
+										console.log("error finding push token");
+											} else {
+												var token = records[0].token;
+												//var name = records[0].username;
+												var badgenum = records[0].badgenum;
+												var myDevice = new apn.Device(token);
+													var note = new apn.Notification();
+													note.badge =  badgenum + 1;
+													//console.log("total badge count = " + note.badge);
+													note.sound = "ping.aiff";
+													note.alert = username + " has received your KandiTAG";
+													note.payload = {'KandiTransferFrom': username};
+													apnConnection.pushNotification(note, myDevice);
+											}
+										});
+                      			}
+                      		});
+                      	}
+                      });
+
                       res.end(JSON.stringify({success: true, qrcode_id: existingQrCode._id, qrcode: qrcode, user_id: user_id, placement: placement, ownership_id: saved._id}), null, 3);
                     });
 
@@ -266,7 +311,7 @@ app.get('/test_DB', function(req, res) {
 });
 
 app.post('/originaltags', function(req, res) {
-  console.log("POST/originaltags")
+  //console.log("POST/originaltags")
   var query = req.body;
   var user_id = query.user_id;
 
@@ -363,7 +408,7 @@ function findIfOriginal(tag, db, callback) {
 
 
 app.post('/currenttags', function(req, res) {
-  console.log("POST/currenttags")
+  //console.log("POST/currenttags")
   var query = req.body;
   var user_id = query.user_id;
 
@@ -620,6 +665,7 @@ app.post('/sendmessage', function(req, res) {
 	var recipient = query.recipient;
 	var message = query.message;
 	var timestamp = query.timestamp;
+	var username = query.username;
 
 	var options = {
 	"cert": 'cert.pem',
@@ -643,15 +689,15 @@ app.post('/sendmessage', function(req, res) {
 					console.log("error finding push token");
 				} else {
 					var token = records[0].token;
-					var name = records[0].username;
+					//var name = records[0].username;
 					var badgenum = records[0].badgenum;
 					var myDevice = new apn.Device(token);
 						var note = new apn.Notification();
 						note.badge =  badgenum + 1;
-						console.log("total badge count = " + note.badge);
+						//console.log("total badge count = " + note.badge);
 						note.sound = "ping.aiff";
-						note.alert = "New Message from " + name;
-						note.payload = {'messageFrom': name};
+						note.alert = "New Message from " + username;
+						note.payload = {'messageFrom': username};
 						apnConnection.pushNotification(note, myDevice);
 				}
 			});
@@ -696,7 +742,7 @@ app.post('/saveconvo', function(req, res) {
 });
 
 app.post('/allmessages', function(req, res) {
-	console.log("POST/allmessages")
+	//console.log("POST/allmessages")
 	var query = req.body;
 	var sender = query.sender;
 
@@ -840,7 +886,7 @@ function findMessageHistory (item, db, callback) {
 }
 
 app.post ('/previouspic', function(req, res) {
-	console.log("POST:/previouspic");
+	//console.log("POST:/previouspic");
 	var query = req.body;
 	var qrcode = query.qrcode;
 	var options = {"sort": [['placement', -1]]};
@@ -854,7 +900,7 @@ app.post ('/previouspic', function(req, res) {
 				res.end(JSON.stringify({success: false, error: "no previous owner"}), null, 3);
 			} else {
 				var qrcode_id = records[0]._id;
-				console.log("qrcode_id:" + qrcode_id);
+				//console.log("qrcode_id:" + qrcode_id);
 				db.kt_ownership.find({qrcode_id: qrcode_id}, options, function(err, recordss) {
 					if (err) {
 						res.end(JSON.stringify({success: false}), null, 3);
@@ -863,7 +909,7 @@ app.post ('/previouspic', function(req, res) {
 							res.end(JSON.stringify({success: false}), null, 3);
 						} else {
 							var user_id = recordss[0].user_id;
-							console.log("user_id:" + user_id);
+							//console.log("user_id:" + user_id);
 							db.users.find({_id: mongojs.ObjectId(user_id)}, function(err, record) {
 								if (err) {
 									res.end(JSON.stringify({success: false}), null, 3);
@@ -872,7 +918,7 @@ app.post ('/previouspic', function(req, res) {
 										res.end(JSON.stringify({success: false}), null, 3);
 									} else {
 										var fbidforpic = record[0].facebookid;
-										console.log("fbidforpic:" + fbidforpic);
+										//console.log("fbidforpic:" + fbidforpic);
 										res.setHeader('Content-Type', 'application/json');
 										res.end(JSON.stringify({success: true, fbidforpic: fbidforpic}), null, 3);
 									}
@@ -887,7 +933,7 @@ app.post ('/previouspic', function(req, res) {
 });
 
 app.post('/previoususerlist', function(req, res) {
-	console.log("POST:/previoususerlist");
+	//console.log("POST:/previoususerlist");
 	var query = req.body;
 	var qrcode = query.qrcode;
 	var db = mongojs.connect(mongoDbUri, collections);
@@ -900,7 +946,7 @@ app.post('/previoususerlist', function(req, res) {
 				res.end(JSON.stringify({success: false}), null, 3);
 			} else {
 				var qrcode_id = records[0]._id;
-				console.log("qrcode_id: " + qrcode_id);
+				//console.log("qrcode_id: " + qrcode_id);
 				db.kt_ownership.find({qrcode_id: qrcode_id}, function(err, recordss) {
 					if (err) {
 						res.end(JSON.stringify({success: false}), null, 3);
@@ -909,7 +955,7 @@ app.post('/previoususerlist', function(req, res) {
 							res.end(JSON.stringify({success: false}), null, 3);
 						} else {
 							var results = [];
-							console.log("results:" + results);
+							//console.log("results:" + results);
 							var length = recordss.length;
 							findPreviousUserListSeries (0, length, recordss, db, results, function() {
 								res.end(JSON.stringify({success: true, results: results}));
@@ -958,6 +1004,26 @@ function findPreviousUserList (item, db, callback) {
 		}
 	});
 }
+
+app.post('/ownercount', function(req, res) {
+	var query = req.body;
+	var qrcode_id = query.qrcode_id;
+	var db = mongojs.connect(mongoDbUri, collections);
+	res.setHeader('Content-Type', 'application/json');
+	db.kt_ownership.find({qrcode_id: qrcode_id}, function(err, records) {
+		if (err) {
+			res.end(JSON.stringify({success: false}), null, 3);
+		} else {
+			if (records.length == 0) {
+				res.end(JSON.stringify({success: false}), null, 3);
+			} else {
+				var count = records.count;
+				res.setHeader('Content-Type', 'application/json');
+				res.end(JSON.stringify({success: true, count: count}), null, 3);
+			}
+		}
+	});
+});
 
 
 var port = Number(80);
