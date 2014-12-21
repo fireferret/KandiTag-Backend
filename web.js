@@ -11,7 +11,7 @@ var apn = require('apn');
 mongojs = require("mongojs")
 
 var mongoDbUri = "mongodb://nodejitsu:7099899734d1037edc30bc5b2a90ca84@troup.mongohq.com:10043/nodejitsudb1189483832";
-var collections = ["users", "kt_qrcode", "kt_ownership", "kt_message", "kt_convo", "kt_token"]
+var collections = ["users", "kt_qrcode", "kt_ownership", "kt_message", "kt_convo", "kt_token", "kt_qrcodes", "kt_follow"]
 
 //socket start
 
@@ -158,6 +158,25 @@ app.post('/login', function(req, res) {
 
 });
 
+app.post('/follow', function(req, res) {
+  var query = req.body;
+  var userid  = query.userID;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.createCollection(userid + ':followers', function(err,collections) {
+    if (err) throw err;
+
+    //console.log("create collection " + userid);
+    //console.log(collection);
+  });
+
+  db.createCollection(userid + ':following', function(err, collections) {
+    if (err) throw err;
+  });
+
+});
+
 app.post('/token', function(req, res) {
 	//console.log("POST:/token");
 	var query = req.body;
@@ -216,6 +235,57 @@ app.get('/kandi', function(req, res) {
 
 });
 
+app.post('/qrcodes', function(req, res) {
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var user_id = query.user_id;
+  var username = query.username;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_qrcodes.find({qrcode: qrcode}, function(err, records) {
+    if (err) {
+      console.log("error in finding qrcode");
+    } else {
+      if (records.length == 0) {
+        db.kt_qrcodes.save({qrcode: qrcode, user_id: user_id, user_name: username}, function(err, saved) {
+          if (err || !saved) {
+            console.log("error in save");
+          } else {
+            res.end(JSON.stringify({success: true}), null, 3);
+          }
+        });
+      }
+      else {
+        var userID = records[0].user_id;
+          if (userID == user_id) {
+            res.end(JSON.stringify({success: false, already_owned: true}), null, 3);
+          }
+          else {
+            db.kt_follow.find({qrcode: qrcode}, function(err, records) {
+              if (err) {
+                console.log("error in kt_follow finding");
+              } else {
+                if (records.length == 0) {
+                  db.kt_follow.save({qrcode: qrcode, user_id: user_id, user_name: username}, function(err, saved) {
+                    if (err || !saved) {
+                      console.log("error in saving to following");
+                    } else {
+                      res.end(JSON.stringify({success: true}), null, 3);
+                    }
+                  });
+                } else {
+                  res.end(JSON.stringify({success: false, already_owned: true}), null, 3);
+                }
+              }
+            });
+        }
+      }
+    }
+  });
+
+});
+
 app.post('/qr', function(req, res) {
   //console.log ("POST:/qr");
   var query = req.body;
@@ -264,6 +334,7 @@ app.post('/qr', function(req, res) {
           } else {
             var dbCount = records.length;
             var dbCountminusOne = (dbCount-1);
+            var followingCollection = user_id + ':following';
             console.log("currentPlacement: " + dbCount);
             console.log("previousPlacement: " + dbCountminusOne);
             if (dbCount >= 2) {
@@ -285,6 +356,45 @@ app.post('/qr', function(req, res) {
                     db.kt_ownership.save({qrcode_id: existingQrCode._id, user_id: user_id, placement: placement}, function(err, saved) {
                       //console.log("qr code was saved into ownership table");
 
+                      db.kt_qrcode.find({qrcode: qrcode}, function(err, records) {
+                        if (err) {
+                          console.log("error");
+                        } else {
+                          var otherUser = records[0].user_id;
+                          var followersCollection = otherUser + ':followers';
+                          db.followersCollection.find({follower: user_id}, function(err, records) {
+                            if (err) {
+                              console.log("error in finding follower");
+                            } else {
+                              if (records.length == 0) {
+                                db.followersCollection.save({follower: user_id}, function(err, saved) {
+                                  if (err) {
+                                    console.log("error saving follower");
+                                  } else {
+                                    console.log("saved new follower: " + user_id);
+                                  }
+                                });
+                              }
+                            }
+                          });
+                          db.followingCollection.find({following: otherUser}, function(err, records) {
+                            if (err) {
+                              console.log("error in finding following");
+                            } else {
+                              if (records.length == 0) {
+                                db.followingCollection.save({following: otherUser}, function(err, saved) {
+                                  if (err) {
+                                    console.log("error saving following");
+                                  } else {
+                                    console.log("saved new following: " + otherUser);
+                                  }
+                                });
+                              }
+                            }
+                          });
+                        }
+                      });
+
                       db.kt_ownership.find({qrcode_id: existingQrCode._id, placement: dbCountminusOne}, function(err, rec) {
                       	if (err) {
                       		console.log("error");
@@ -297,22 +407,22 @@ app.post('/qr', function(req, res) {
                       				var fbidpush = recc[0].facebookid;
 
                       				db.kt_token.find({facebookid: fbidpush}, function(err, records) {
-										if (err) {
-										console.log("error finding push token");
-											} else {
-												var token = records[0].token;
-												//var name = records[0].username;
-												var badgenum = records[0].badgenum;
-												var myDevice = new apn.Device(token);
-													var note = new apn.Notification();
-													note.badge =  badgenum + 1;
-													//console.log("total badge count = " + note.badge);
-													note.sound = "ping.aiff";
-													note.alert = username + " has received your KandiTAG";
-													note.payload = {'KandiTransferFrom': username};
-													apnConnection.pushNotification(note, myDevice);
-											}
-										});
+			               							if (err) {
+				              					   	console.log("error finding push token");
+					             						} else {
+								              				var token = records[0].token;
+											               	//var name = records[0].username;
+										              		var badgenum = records[0].badgenum;
+										              		var myDevice = new apn.Device(token);
+									             				var note = new apn.Notification();
+									             				note.badge =  badgenum + 1;
+									             				//console.log("total badge count = " + note.badge);
+											             		note.sound = "ping.aiff";
+									             				note.alert = username + " is now following you";
+											             		note.payload = {'KandiTransferFrom': username};
+										            			apnConnection.pushNotification(note, myDevice);
+								            			}
+								          		});
                       			}
                       		});
                       	}
@@ -332,6 +442,153 @@ app.post('/qr', function(req, res) {
     }
   });
 });
+
+
+app.post('/followers', function(req, res) {
+  var query = req.body;
+  var user_id = query.user_id;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_qrcode.find({user_id: user_id}, function(err, records) {
+    if (err) {
+      console.log("error in find");
+    } else {
+      var length = records.length;
+      if (length == 0) {
+        res.end(JSON.stringify({success: false, error: "no followers"}), null, 3);
+      } else {
+        var results = [];
+        var length = records.length;
+        findFollowersSeries (0, length, records, db, results, function() {
+          res.end(JSON.stringify({success: true, results: results}));
+        });
+      }
+    }
+  });
+});
+
+function findFollowersSeries (currentIndex, recordsLength, records, db, results, callback) {
+  if (currentIndex < recordsLength) {
+    item = records[currentIndex];
+    if (item) {
+      findIfFollower (item, db, function(result) {
+        results.push (result);
+        currentIndex = currentIndex + 1;
+        findFollowersSeries (currentIndex, recordsLength, records, db, results, callback);
+      });
+    } else {
+      callback();
+    }
+  } else {
+    callback();
+  }
+}
+
+function findIfFollower (item, db, callback) {
+  if (!item)
+    return;
+
+  db.kt_ownership.find({qrcode_id: item._id}, function(err, docs) {
+    if (err) {
+      return;
+    }
+
+    var length = docs.length;
+    for (var i = 0; i < length; i ++) {
+      var ownershipRow = docs[i];
+      var userID = ownershipRow.user_id;
+      db.users.find({_id: mongojs.ObjectId(userID)}, function(err, recs) {
+        if (err) {
+          console.log("error");
+        } else {
+          if (recs.length > 0) {
+            user = recs[0];
+            result = {
+              follower: {
+                user_id: user._id,
+              }
+            }
+            callback(result);
+          }
+        }
+      });
+    }
+  });
+}
+
+app.post('/following', function(req, res) {
+  var query = req.body;
+  var user_id = query.user_id;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({user_id: user_id, placement: 1}, function(err, records) {
+    if (err) {
+      console.log("error in find");
+    } else {
+      var length = records.length;
+      if (length == 0) {
+        res.end(JSON.stringify({success: false, error: "no followers"}), null, 3);
+      } else {
+        var results = [];
+        var length = records.length;
+        findFollowingSeries (0, length, records, db, results, function() {
+          res.end(JSON.stringify({success: true, results: results}));
+        });
+      }
+    }
+  });
+});
+
+function findFollowingSeries (currentIndex, recordsLength, records, db, results, callback) {
+  if (currentIndex < recordsLength) {
+    item = records[currentIndex];
+    if (item) {
+      findIfFollowing (item, db, function(result) {
+        results.push (result);
+        currentIndex = currentIndex + 1;
+        findFollowingSeries (currentIndex, recordsLength, records, db, results, callback);
+      });
+    } else {
+      callback();
+    }
+  } else {
+    callback();
+  }
+}
+
+function findIfFollowing (item, db, callback) {
+  if (!item)
+    return;
+
+  db.kt_ownership.find({qrcode_id: item.qrcode_id, placement: 0}, function(err, docs) {
+    if (err) {
+      return;
+    }
+
+    var length = docs.length;
+    for (var i = 0; i < length; i ++) {
+      var ownershipRow = docs[i];
+      var userID = ownershipRow.user_id;
+      db.users.find({_id: mongojs.ObjectId(userID)}, function(err, recs) {
+        if (err) {
+          console.log("error");
+        } else {
+          if (recs.length > 0) {
+            user = recs[0];
+            result = {
+              follower: {
+                user_id: user._id,
+              }
+            }
+            callback(result);
+          }
+        }
+      });
+    }
+  });
+}
 
 app.get('/test_HEADERS', function(req, res) {
   //console.log('HEADERS: ' + JSON.stringify(res.headers));
