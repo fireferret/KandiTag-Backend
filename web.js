@@ -2,22 +2,124 @@
 var express = require("express");
 var logfmt = require("logfmt");
 var app = express();
+//var app = require('express')();
 var url = require('url');
 var bodyParser = require('body-parser');
 
 var apn = require('apn');
-
 
 mongojs = require("mongojs")
 
 var mongoDbUri = "mongodb://nodejitsu:7099899734d1037edc30bc5b2a90ca84@troup.mongohq.com:10043/nodejitsudb1189483832";
 var collections = ["users", "kt_qrcode", "kt_ownership", "kt_message", "kt_convo", "kt_token"]
 
+//socket start
+
+//users currently connected
+
+var clients = {};
+
+var http = require('http').Server(app);
+var server = app.listen(3000);
+var io = require('socket.io').listen(server);
+//var io = require('socket.io')(3000);
+
+io.on('connection', function (socket) {
+  console.log('a user connected');
+  var db = mongojs.connect(mongoDbUri, collections);
+
+  var userName;
+  var userFBID;
+
+
+  socket.on('setChat', function(fID, fname, tID, tname) {
+    userName = fname;
+    userFBID = fID;
+    clients[userFBID] = socket;
+    console.log('chat between (' + fname + ') ' + fID + ' and (' + tname + ') ' + tID);
+  db.kt_message.find({$or: [{fID: fID, tID: tID}, {fID: tID, tID: fID}]}, function(err, records) {
+    if (err) {
+      console.log("error in finding chat");
+    } else {
+      if (records.length == 0) {
+        console.log("no chat records found");
+      } else {
+        var messages = [];
+        for (var i = 0; i < records.length; i++) {
+          var msgg = records[i].msg;
+          var element = {
+            mssg:  records[i].msg,
+            fID: records[i].fID,
+           // fname: records[i].fname,
+            tID: records[i].tID,
+           //tname: records[i].tname,
+            date: records[i].date
+          }
+          messages.push(msgg);
+        }
+        console.log("chat found");
+        //io.emit('setChat', 'chat found between ' + fname + ' and ' + tname);
+        //io.emit('loadChat', records);
+          for (var i = messages.length - 1; i >= messages.length - 10; i--) {
+            io.emit('setChat', (messages[i]));
+          }
+      }
+    }
+  });
+    io.emit(fID + fname);
+  });
+
+  socket.on('pm', function(msg, fname, fID, tname, tID) {
+    var userSocket = clients[tID];
+    db.kt_message.save({msg: msg, fname: fname, fID: fID, tname: tname, tID: tID, date: Date.now()}, function(err, saved) {
+      if (err) {
+        console.log("error saving msg");
+      } else {
+        console.log("success saving msg");
+      }
+    });
+    console.log(fname + ' says ' + msg + ' to ' + tname);
+    io.emit('setChat', msg);
+    //userSocket.emit(fname + ' says ' + msg + ' to ' + tname);
+  });
+
+  //socket.emit('join', socket['id']);
+  //console.log(socket['id'] + ' has connected!');
+
+
+  //socket.on('register', function(data) {
+  //  clients[data.fbid] = socket.id;
+  //});
+
+  //socket.on('location', function (data) {
+    //socket.emit('update', (socket['id'] + ':' + data));
+    //console.log("data:" + data);
+//});
+
+  socket.on('disconnect', function() {
+    console.log('user disconnected');
+    //socket.emit('disappear', socket['id']);
+    console.log(socket['id'] + ' has disconnected!');
+  });
+  socket.on('chat message', function(msg, from, to) {
+    console.log(from + ' says: ' + msg + ' to ' + to);
+    io.emit('chat message', from + ": " + msg);
+  });
+});
+
+//socket end
+
+
 app.use(logfmt.requestLogger());
 app.use(bodyParser.json());
 
+//app.get('/', function(req, res) {
+//  res.send('Hello World!!');
+//});
+
 app.get('/', function(req, res) {
-  res.send('Hello World!!');
+  //res.send('<h1>Hello World</h1>');
+  res.sendFile(__dirname + '/index.html');
 });
 
 app.post('/login', function(req, res) {
@@ -164,7 +266,7 @@ app.post('/qr', function(req, res) {
             var dbCountminusOne = (dbCount-1);
             console.log("currentPlacement: " + dbCount);
             console.log("previousPlacement: " + dbCountminusOne);
-            if (dbCount >= 5) {
+            if (dbCount >= 2) {
               // there's already been 5 max qr references in the kt_ownership table
               res.end(JSON.stringify({success: false, limit_reached: true}), null, 3);
             } else {
@@ -820,7 +922,7 @@ app.post('/messagehistory', function(req, res) {
 	var db = mongojs.connect(mongoDbUri, collections);
 	res.setHeader('Content-Type', 'application/json');
 
-	db.kt_message.find({$or: [{recipient: recipient, sender: sender}, {recipient: sender, sender: recipient}]}, function(err, records) {
+	db.kt_message.find({$or: [{tID: recipient, fID: sender}, {tID: sender, fID: recipient}]}, { limit : 10, sort : { date : -1 } }, function(err, records) {
 		if (err){
 			res.end(JSON.stringify({success: false, error: "messagehistory, error in find"}), null, 3);
 		} else {
@@ -862,7 +964,7 @@ function findMessageHistory (item, db, callback) {
 	if (!item)
 		return;
 
-	db.kt_message.find({$or: [{recipient: item.recipient}, {recipient: item.sender}]}, function(err, records) {
+	db.kt_message.find({$or: [{tID: item.tID}, {tID: item.fID}]}, function(err, records) {
 		if (err) {
 			//console.log("findMessage:" + err);
 			return;
@@ -870,10 +972,10 @@ function findMessageHistory (item, db, callback) {
 			if (records.length > 0) {
 				result = {
 					messagehistory: {
-						message: item.message,
-						sender: item.sender,
-						recipient: item.recipient,
-						timestamp: item.timestamp
+						message: item.msg,
+						sender: item.fID,
+						recipient: item.tID,
+						timestamp: item.date
 					}
 				}
 				callback(result);
@@ -1026,10 +1128,17 @@ app.post('/ownercount', function(req, res) {
 });
 
 
-var port = Number(80);
-app.listen(port, function() {
-  console.log("Listening on " + port);
-});
+var port = Number(3000);
+//app.listen(port, function() {
+//  console.log("Listening on " + port);
+//});
+//app.listen(3000);
+
+
+//socket start
+
+
+//socket end
 
 
 
