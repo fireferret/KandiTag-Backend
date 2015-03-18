@@ -7,36 +7,250 @@ var url = require('url');
 var bodyParser = require('body-parser');
 
 var apn = require('apn');
+var gcm = require('node-gcm');
+
 
 mongojs = require("mongojs")
 
 var mongoDbUri = "mongodb://nodejitsu:7099899734d1037edc30bc5b2a90ca84@troup.mongohq.com:10043/nodejitsudb1189483832";
-var collections = ["users", "kt_qrcode", "kt_ownership", "kt_message", "kt_convo", "kt_token", "kt_qrcodes", "kt_follow"]
+var collections = ["kt_users", "kt_qrcode", "kt_ownership", "kt_message", "kt_groupmessage","kt_token", "kt_images", "kt_gifs", "kt_videos"]
 
 //socket start
 
 //users currently connected
+
 
 var clients = {};
 
 var http = require('http').Server(app);
 var server = app.listen(3000);
 var io = require('socket.io').listen(server);
-//var io = require('socket.io')(3000);
 
 io.on('connection', function (socket) {
-  console.log('a user connected');
-  var db = mongojs.connect(mongoDbUri, collections);
 
   var userName;
   var userFBID;
+  var userKTID;
 
+  //console.log('a user connected:' + socket.id);
+  var db = mongojs.connect(mongoDbUri, collections);
+
+  socket.on('sign_in', function(fbid, ktid) {
+    var userFBID = fbid;
+    var userKTID = ktid;
+    clients[fbid] = socket;
+    socket.id = fbid;
+    console.log(userFBID + ' has connected');
+    //io.to(clients[userFBID]).emit('sign_in', userFBID + ' has connected');
+    socket.emit('sign_in', userFBID + ' has connected');
+  });
+
+  socket.on('get_messages', function(fbid) {
+    var userFBID = fbid;
+    if (!clients[userFBID]) {
+      clients[userFBID] = socket.id;
+    }
+    console.log("getting messages for " + userFBID);
+    db.kt_message.find({tID: fbid, sent: false}, function(err, records) {
+      if (err) {
+        console.log("error getting unsent messages");
+      } else {
+        if (records.length == 0) {
+          console.log("no unsent messages");
+        } else {
+          clients[userFBID] = socket;
+          for (var i = 0; i < records.length; i++) {
+            var results = records[i];
+            var message = results.msg;
+            var fID = results.fID;
+            var tID = results.tID;
+            var date = results.date;
+            var _id = results._id;
+            (clients[userFBID]).emit('get_messages', JSON.stringify([message, fID, tID, date]));
+            db.kt_message.update({_id: _id}, { $set: { sent: true}});
+          }
+        }
+      }
+    });
+  });
+
+  socket.on('group_message', function (message, from_id, from_name, kandi_group, kandi_name) {
+    var messageTimeStamp = Date.now();
+    if (!clients[from_id]) {
+      clients[from_id] = socket.id;
+    }
+
+    db.kt_groupmessage.save({message: message, from_id: from_id, from_name: from_name, kandi_group: kandi_group, kandi_name: kandi_name, time: messageTimeStamp}, function (err, saved) {
+      if (err||!saved) {
+        console.log("group_message: " + err);
+      } else {
+        db.kt_ownership.find({qrcode: kandi_group}, function (err, recs) {
+          if (err) {
+            console.log("group_message: " + err);
+          } else {
+
+            if (clients[from_id] != undefined) {
+              (clients[from_id]).emit('group_message', JSON.stringify({message: message, from_id: from_id, from_name: from_name, kandi_group: kandi_group, kandi_name: kandi_name, time: messageTimeStamp}), null, 3);
+            } else {
+              console.log('group_message: error in emitting to self')
+            }
+
+            var results = [];
+            var length = recs.length;
+            for (var i = 0; i < length; i++) {
+
+              var user_fbid = recs[i].fb_id;
+              if (user_fbid != from_id) {
+                db.kt_users.find({facebookid: user_fbid}, function (err, records) {
+                  if (err) {
+                    console.log("group_message: " + err);
+                  } else {
+                    if (clients[user_fbid] != undefined) {
+                      (clients[user_fbid]).emit('group_message', JSON.stringify({message: message, from_id: from_id, from_name: from_name, kandi_group: kandi_group, kandi_name: kandi_name, time: messageTimeStamp}), null, 3);
+                    } else if (clients[user_fbid] == undefined) {
+                      var reg_id = records[0].gcm_id;
+                      var push_message = new gcm.Message({
+                        collapseKey: 'group_message',
+                        delayWhileIdle: false,
+                        data: {
+                          msg: message,
+                          from_id: from_id,
+                          from_name: from_name,
+                          kandi_group: kandi_group,
+                          kandi_name: kandi_name,
+                          time: messageTimeStamp
+                        }
+                      });
+                      var sender = new gcm.Sender('AIzaSyAv73kah7w3mlbQ7sVsvhaiIGfKtCH4OEU');
+                      sender.send(push_message, reg_id, function (err, results) {
+                        if (err) console.log(err);
+                        else console.log(results);
+                      });
+                    }
+                  }
+                });
+              }
+
+            }
+          }
+        });
+      }
+    });
+
+  });
+
+  socket.on('privatemessage', function(message, recipientID, senderID, toName, fromName) {
+    var messageTimeStamp = Date.now();
+    if (!clients[senderID]) {
+      clients[senderID] = socket.id;
+    }
+
+    //clients[recipientID] may still be online, make sure to disconnect from the socket when the screen is turned off
+    if (clients[recipientID] != undefined) {
+      db.kt_message.save({msg: message, fID: senderID, tID: recipientID, fromName: fromName, toName: toName, date: messageTimeStamp}, function(err, saved) {
+        if (err) {
+          console.log("recipient online but error saving message into database");
+          //clients[senderID] = socket;
+          (clients[senderID]).emit('privatemessage', "message failed to send");
+        } else {
+          console.log("recipient online and successfully saved message into database");
+          db.kt_message.find({msg: message, fID: senderID, tID: recipientID, date: messageTimeStamp}, function (err, records) {
+            if (err) {
+              console.log("error getting saved message from db");
+            } else {
+             //clients[senderID] = socket;
+              (clients[senderID]).emit('privatemessage', JSON.stringify({records: records}));
+              //clients[recipientID] = socket;
+              (clients[recipientID]).emit('privatemessage', JSON.stringify({records: records}));
+            }
+          });
+        }
+      });
+    } else if (clients[recipientID] == undefined) {
+      //save message and retry send
+      db.kt_message.save({msg: message, fID: senderID, tID: recipientID, fromName: fromName, toName: toName, date: messageTimeStamp}, function(err, saved) {
+        if (err) {
+          console.log("recipient offline and error saving message into database");
+        //alert them that the message send failed
+          (clients[senderID]).emit('privatemessage', "message failed to send");
+        } else {
+          console.log("recipient offline but successfully saved message into database");
+          db.kt_message.find({msg: message, fID: senderID, tID: recipientID, date: messageTimeStamp}, function (err, records) {
+              if (err) {
+                console.log("error getting saved message from db");
+              } else {
+                (clients[senderID]).emit('privatemessage', JSON.stringify({records: records}));
+              }
+          });
+
+          db.kt_users.find({facebookid: recipientID, username: toName}, function (err, records) {
+            if (err) {
+              console.log("socket.on.privatemessage: error in finding user's token");
+            } else {
+              if (records.length == 0) {
+                console.log("socket.on.privatemessage: error, no record of user in db");
+              } else {
+                var reg_id = records[0].gcm_id;
+                var push_message = new gcm.Message({
+                  collapseKey: 'message',
+                  delayWhileIdle: false,
+                  data: {
+                    msg: message,
+                    from_id: senderID,
+                    to_id: recipientID,
+                    from_name: fromName,
+                    to_name: toName,
+                    time: messageTimeStamp
+                  }
+                });
+                var sender = new gcm.Sender('AIzaSyAv73kah7w3mlbQ7sVsvhaiIGfKtCH4OEU');
+                sender.send(push_message, reg_id, function (err, result) {
+                  if (err) console.log(err);
+                  else console.log(result);
+                });
+              }
+            }
+          });
+          //need to send message to sender
+          //this isnt doing anything right now
+          /**
+          db.kt_message.find({fID: senderID}, function(err, records) {
+            if (err) {
+              console.log("error displaying unreceived messages");
+            } else {
+              if (records.length == 0) {
+                console.log("no unreceived messages");
+              } else {
+                for (var i = 0; i < records.length; i++) {
+                  console.log("attempting to send unreceived messages");
+                  var results = records[i];
+                  var message = results.msg;
+                  var fID = results.fID;
+                  var tID = results.tID;
+                  var date = results.date;
+                  var _id = results._id;
+                  //clients[senderID] = socket;
+                  //io.to(clients[senderID]).emit('privatemessage', JSON.stringify([message, fID, tID, date]));
+                  //(clients[senderID]).emit('privatemessage', JSON.stringify([message, fID, tID, date]));
+
+                  //so the broadcast works but private client does not
+                  //io.emit('privatemessage', "broadcasting");
+                }
+              }
+            }
+          });
+**/
+        }
+      });
+    }
+  });
 
   socket.on('setChat', function(fID, fname, tID, tname) {
     userName = fname;
     userFBID = fID;
-    clients[userFBID] = socket;
-    console.log('chat between (' + fname + ') ' + fID + ' and (' + tname + ') ' + tID);
+    clients[userFBID] = socket.id;
+    //console.log('chat between (' + fname + ') ' + fID + ' and (' + tname + ') ' + tID);
+    console.log(userFBID + ' - ' + userName + ' has connected');
   db.kt_message.find({$or: [{fID: fID, tID: tID}, {fID: tID, tID: fID}]}, function(err, records) {
     if (err) {
       console.log("error in finding chat");
@@ -44,25 +258,9 @@ io.on('connection', function (socket) {
       if (records.length == 0) {
         console.log("no chat records found");
       } else {
-        var messages = [];
-        for (var i = 0; i < records.length; i++) {
-          var msgg = records[i].msg;
-          var element = {
-            mssg:  records[i].msg,
-            fID: records[i].fID,
-           // fname: records[i].fname,
-            tID: records[i].tID,
-           //tname: records[i].tname,
-            date: records[i].date
-          }
-          messages.push(msgg);
-        }
         console.log("chat found");
         //io.emit('setChat', 'chat found between ' + fname + ' and ' + tname);
         //io.emit('loadChat', records);
-          for (var i = messages.length - 1; i >= messages.length - 10; i--) {
-            io.emit('setChat', (messages[i]));
-          }
       }
     }
   });
@@ -78,8 +276,9 @@ io.on('connection', function (socket) {
         console.log("success saving msg");
       }
     });
-    console.log(fname + ' says ' + msg + ' to ' + tname);
-    io.emit('setChat', msg);
+    //console.log(fname + ' says ' + msg + ' to ' + tname);
+    io.emit('pm', "HELLO:" + msg);
+    io.userSocket.emit('pm', msg);
     //userSocket.emit(fname + ' says ' + msg + ' to ' + tname);
   });
 
@@ -96,31 +295,46 @@ io.on('connection', function (socket) {
     //console.log("data:" + data);
 //});
 
-  socket.on('disconnect', function() {
-    console.log('user disconnected');
-    //socket.emit('disappear', socket['id']);
-    console.log(socket['id'] + ' has disconnected!');
+
+  socket.on('disconnect', function () {
+    // this function has no idea what userFBID is, so nothing is deleted
+    //delete clients[userFBID];
+    delete clients[socket.id];
+    console.log(clients);
+    //console.log(socket);
   });
+
+
   socket.on('chat message', function(msg, from, to) {
     console.log(from + ' says: ' + msg + ' to ' + to);
     io.emit('chat message', from + ": " + msg);
   });
+
+//end of socket  
+//need to set up time out just in case user doesnt disconnect
 });
+
+
 
 //socket end
 
-
-app.use(logfmt.requestLogger());
-app.use(bodyParser.json());
-
-//app.get('/', function(req, res) {
-//  res.send('Hello World!!');
-//});
+/**
 
 app.get('/', function(req, res) {
   //res.send('<h1>Hello World</h1>');
   res.sendFile(__dirname + '/index.html');
 });
+
+**/
+
+app.use(logfmt.requestLogger());
+app.use(bodyParser.json());
+
+
+app.get('/', function(req, res) {
+  res.send('404 page not found');
+});
+
 
 app.post('/login', function(req, res) {
   var query = req.body;
@@ -130,20 +344,20 @@ app.post('/login', function(req, res) {
   var db = mongojs.connect(mongoDbUri , collections);
   res.setHeader('Content-Type', 'application/json');
 
-  db.users.find({facebookid: facebookid, username: username}, function(err, records) {
+  db.kt_users.find({facebookid: facebookid, username: username}, function(err, records) {
     if (err) {
       //console.log ("/login, user couldn't be found");
       res.end(JSON.stringify({success: false}), null, 3);
     } else {
       if (records.length == 0) {
         // they weren't found in the db, so add them
-        db.users.save({facebookid: facebookid, username: username}, function(err, saved) {
+        db.kt_users.save({facebookid: facebookid, username: username}, function(err, saved) {
           if( err || !saved ) {
             //console.log("User not saved");
             res.end(JSON.stringify({success: false}), null, 3);
           } else {
             //console.log("/login, New User saved");
-            res.end(JSON.stringify({success: true, user_id: saved._id}), null, 3);
+            res.end(JSON.stringify({success: true, user_id: saved._id, username: username, facebookid: facebookid}), null, 3);
           }
         });
       } else {
@@ -151,12 +365,154 @@ app.post('/login', function(req, res) {
         var user_id = records[0]._id;
         //console.log("/login, existing user, returning their user id " + user_id);
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({success: true, user_id: user_id}), null, 3);
+        res.end(JSON.stringify({success: true, user_id: user_id, username: username, facebookid: facebookid}), null, 3);
       }
     }
   });
 
 });
+
+app.post('/save_device_token_android', function (req, res) {
+  var query = req.body;
+  var kt_id = query.kt_id;
+  var fb_id = query.fb_id;
+  var token = query.token;
+  var user_name = query.user_name;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_users.find({_id: mongojs.ObjectId(kt_id), facebookid: fb_id, username: user_name}, function (err, records) {
+    if (err) {
+      console.log("save_device_token: error in db query");
+    } else {
+      if (records.length == 0) {
+        console.log("save_device_token: error, user (" + fb_id + ", " + user_name + ") does not exists in db");
+      } else {
+        db.kt_users.update({_id: mongojs.ObjectId(kt_id), facebookid: fb_id, username: user_name}, {_id: mongojs.ObjectId(kt_id), facebookid: fb_id, username: user_name, gcm_id: token}, function (err, saved) {
+            if (err) {
+              console.log("save_device_token: error in updating token");
+            } else {
+              res.end(JSON.stringify({success: true}), null, 3);
+            }
+        });
+      }
+    }
+  });
+});
+
+app.post('/check_ktownership_for_me', function (req, res) {
+  var query = req.body;
+  var kt_id = query.kt_id;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({kt_id: kt_id}, function (err, records) {
+    if (err) {
+      console.log("check_ktownership_for_me: error in db query");
+    } else {
+      if (records.length == 0) {
+        console.log("check_ktownership_for_me: no records for " + kt_id + " in kt_ownership");
+      } else {
+        res.end(JSON.stringify({success: true, records: records}), null, 3);
+      }
+    }
+  });
+});
+
+app.post('/check_ktownership_for_user', function (req, res) {
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({qrcode: qrcode}, function (err, records) {
+    if (err) {
+      console.log("check_ktownership_for_user: error in db query");
+    } else {
+      if (records.length == 0) {
+        console.log("check_ktownership_for_user: no records");
+      } else {
+        res.end(JSON.stringify({success: true, records: records}), null, 3);
+      }
+    }
+  });
+});
+
+app.post('/get_kandi_name_from_ktqrcode', function (req, res) {
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_qrcode.find({qrcode: qrcode}, function (err, records) {
+    if (err) {
+      console.log("get_kandi_name_from_ktqrcode: error in db query");
+    } else {
+      if (records.length == 0) {
+        console.log("get_kandi_name_from_ktqrcode: no records");
+      } else {
+        res.end(JSON.stringify({success: true, records: records}), null, 3);
+      }
+    }
+  });
+});
+
+app.post('/download_messages', function (req, res) {
+  var query = req.body;
+  var fb_id = query.fb_id;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_message.find({$or: [{tID: fb_id}, {fID: fb_id}]}, function (err, records) {
+    if (err) {
+      console.log("download_messages: error in db query");
+    } else {
+      if (records.length == 0) {
+        res.end(JSON.stringify({success: true}), null, 3);
+      } else {
+        res.end(JSON.stringify({success: true, records: records}), null, 3);
+      }
+    }
+  });
+});
+
+app.post('/download_group_messages', function (req, res) {
+  var query = req.body;
+  var fb_id = query.fb_id;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_groupmessage.find({from_id: fb_id}, function (err, records) {
+    if (err) {
+      console.log("download_group_messages: error in db query");
+    } else {
+      if (records.length == 0) {
+        console.log("download_group_messages: no records");
+      } else {
+        res.end(JSON.stringify({success: true, records: records}), null, 3);
+      }
+    }
+  });
+});
+
+app.post('/getkandi', function (req, res) { 
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var db = monogjs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({qrcode: qrcode}, function (err, records) {
+    if (err) {
+      console.log("getkandi: error in getting records");
+    } else {
+      if (records.length == 0) {
+        res.end(JSON.stringify({success: false, previous_user: false}), null, 3);
+      } else {
+        res.end(JSON.stringify({success: true, records: records}), null, 3);
+      }
+    }
+  })
+})
 
 app.post('/follow', function(req, res) {
   var query = req.body;
@@ -286,12 +642,164 @@ app.post('/qrcodes', function(req, res) {
 
 });
 
+app.post('/kt_ownership_findall', function(req, res) {
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({qrcode: qrcode}, function (err, records) {
+    if (err) {
+      console.log("kt_ownership_findall: error in query");
+    } else {
+      if (records.length == 0) {
+        console.log("kt_ownership_findall: query found nothing");
+      } else {
+        res.end(JSON.stringify({success: true, records: records}), null, 3);
+      }
+    }
+  });
+});
+
+app.post('/kt_ownership_finduser', function(req, res) {
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_ownership.find({qrcode: qrcode}, function(err,records) {
+    if (err) {
+      console.log("kt_ownership_finduser: error in query");
+    } else {
+      if (records.length == 0) {
+        res.end(JSON.stringify({success: false, previous_user: false}), null, 3);
+      } else {
+        var ownerCount = records.length;
+        var results = [];
+        res.end(JSON.stringify({success: true, previous_user: true, previous_userCount: ownerCount, records: records}), null, 3);
+      }
+    }
+  });
+});
+
+app.post('/kt_qrcode_save', function(req, res) {
+  var query = req.body;
+  var qrcode = query.qrcode;
+  var kt_id = query.kt_id;
+  var fb_id = query.fb_id;
+  var username = query.username;
+  var kandi_name = query.kandi_name;
+
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_qrcode.find({qrcode: qrcode}, function(err, records) {
+    if (err) {
+      console.log("kt_qrcode_save: error querying database");
+    } else {
+      if (records.length == 0) {
+        db.kt_qrcode.save({qrcode: qrcode, kt_id: kt_id, fb_id: fb_id, username: username, kandi_name: kandi_name}, function (err, saved) {
+          if (err || !saved) {
+            console.log("kt_qrcode_save: error saving qrcode into kt_qrcode");
+          } else {
+            db.kt_ownership.save({qrcode: qrcode, kt_id: kt_id, fb_id: fb_id, username: username, placement: 0}, function (err, saved) {
+              if (err || !saved) {
+                console.log("kt_qrcode_save: error saving qrcode into kt_ownership");
+              } else {
+                res.end(JSON.stringify({success: true, qrcode: qrcode, kt_id: kt_id, fb_id: fb_id, username: username, placement: 0, kandi_name: kandi_name}), null, 3);
+              }
+            });
+          }
+        });
+      } else {
+        var existingQrCode = records[0];
+        db.kt_ownership.find({qrcode: existingQrCode.qrcode}, function (err, records) {
+          if (err) {
+            console.log("kt_qrcode_save: qrcode exists in kt_qrcode, but query in kt_ownership failed");
+          } else {
+            var ownerCount = records.length;
+            if (ownerCount >= 8) {
+              console.log("kt_qrcode_save: qrcode cannot hold anymore users, new user will not be saved");
+            }  else {
+              db.kt_ownership.save({qrcode: existingQrCode.qrcode, kt_id: kt_id, fb_id: fb_id, username: username, placement: ownerCount}, function (err, saved) {
+                if (err||!saved) {
+                  console.log("kt_qrcode_save: error saving new user into kt_ownership");
+                } else {
+                  db.kt_ownership.find({qrcode: existingQrCode.qrcode}, function (err, records) {
+                      if (err) {
+                        console.log("kt_qrcode_save: error sending results back");
+                      } else {
+                        var results = [];
+                        var length = records.length;
+                        findPushIdSeries (0, length, records, db, results, function() {});
+                        res.end(JSON.stringify({success: true, records: records}), null, 3);
+                      }
+                  });
+                  //res.end(JSON.stringify({success: true, qrcode: existingQrCode.qrcode, kt_id: kt_id, fb_id: fb_id, username: username, placement: ownerCount}), null, 3);
+                }
+              });
+            }
+          }
+        });
+      }
+    }
+  });
+}); 
+
+function findPushIdSeries (currentIndex, recordsLength, records, db, results, callback) {
+  if (currentIndex < recordsLength) {
+    item = records[currentIndex];
+    if (item) {
+      findPushId (item, db, function (result) {
+        results.push(result);
+        currentIndex = currentIndex + 1;
+        findPushIdSeries (currentIndex, recordsLength, records, db, results, callback);
+      });
+    } else {
+      callback();
+    }
+  } else {
+    callback();
+  }
+}
+
+function findPushId (item, db, callback) {
+  if (!item)
+    return;
+
+  db.kt_users.find({_id: mongojs.ObjectId(item.kt_id)}, function (err, docs) {
+    if (err)
+      return;
+
+    var length = docs.length;
+    for (var i = 0; i < length - 1; i++) {
+      var user = docs[i];
+      var pushId = user.gcm_id;
+      var push_message = new gcm.Message({
+        collapseKey: 'kandi',
+        delayWhileIdle: false,
+        data: {
+          //maybe use "(groupName) welcomes (username)"
+          kandi: "You have a new friend!"
+        }
+      });
+      var sender = new gcm.Sender('AIzaSyAv73kah7w3mlbQ7sVsvhaiIGfKtCH4OEU');
+      sender.send(push_message, pushId, function (err, result) {
+        if (err) console.log(err);
+        else console.log(result);
+      });
+     callback(); 
+    }
+  });
+}
+
 app.post('/qr', function(req, res) {
   //console.log ("POST:/qr");
   var query = req.body;
   var qrcode = query.qrcode;
   var user_id = query.user_id;
   var username = query.username;
+  var facebookid = query.facebook_id;
   var db = mongojs.connect(mongoDbUri , collections);
 
   var options = {
@@ -309,7 +817,7 @@ app.post('/qr', function(req, res) {
     } else {
       if (records.length == 0) {
         // qr code doesn't exist in database yet
-        db.kt_qrcode.save({qrcode: qrcode, user_id: user_id}, function(err, saved) {
+        db.kt_qrcode.save({qrcode: qrcode, user_id: user_id, facebookid: facebookid}, function(err, saved) {
           if( err || !saved ) {
             //console.log("2 qrcode was not saved");
             res.end(JSON.stringify({success: false, error: "qrcode wasn't saved. had error saving"}), null, 3);
@@ -400,7 +908,7 @@ app.post('/qr', function(req, res) {
                       		console.log("error");
                       	} else {
                       		var user = rec[0].user_id;
-                      		db.users.find({_id: mongojs.ObjectId(user)}, function(err, recc) {
+                      		db.kt_users.find({_id: mongojs.ObjectId(user)}, function(err, recc) {
                       			if (err) {
                       				console.log("another error");
                       			} else {
@@ -461,7 +969,7 @@ app.post('/followers', function(req, res) {
         var results = [];
         var length = records.length;
         findFollowersSeries (0, length, records, db, results, function() {
-          res.end(JSON.stringify({success: true, results: results}));
+          res.end(JSON.stringify({success: true, followers_results: results}));
         });
       }
     }
@@ -473,7 +981,7 @@ function findFollowersSeries (currentIndex, recordsLength, records, db, results,
     item = records[currentIndex];
     if (item) {
       findIfFollower (item, db, function(result) {
-        results.push (result);
+        results.push(result);
         currentIndex = currentIndex + 1;
         findFollowersSeries (currentIndex, recordsLength, records, db, results, callback);
       });
@@ -498,16 +1006,18 @@ function findIfFollower (item, db, callback) {
     for (var i = 0; i < length; i ++) {
       var ownershipRow = docs[i];
       var userID = ownershipRow.user_id;
-      db.users.find({_id: mongojs.ObjectId(userID)}, function(err, recs) {
+      db.kt_users.find({_id: mongojs.ObjectId(userID)}, function(err, recs) {
         if (err) {
           console.log("error");
         } else {
           if (recs.length > 0) {
             user = recs[0];
             result = {
-              follower: {
+              //follower: {
                 user_id: user._id,
-              }
+                facebookid: user.facebookid,
+                username: user.username
+              //}
             }
             callback(result);
           }
@@ -529,12 +1039,12 @@ app.post('/following', function(req, res) {
     } else {
       var length = records.length;
       if (length == 0) {
-        res.end(JSON.stringify({success: false, error: "no followers"}), null, 3);
+        res.end(JSON.stringify({success: false, error: "no following"}), null, 3);
       } else {
         var results = [];
         var length = records.length;
         findFollowingSeries (0, length, records, db, results, function() {
-          res.end(JSON.stringify({success: true, results: results}));
+          res.end(JSON.stringify({success: true, following_results: results}));
         });
       }
     }
@@ -571,16 +1081,18 @@ function findIfFollowing (item, db, callback) {
     for (var i = 0; i < length; i ++) {
       var ownershipRow = docs[i];
       var userID = ownershipRow.user_id;
-      db.users.find({_id: mongojs.ObjectId(userID)}, function(err, recs) {
+      db.kt_users.find({_id: mongojs.ObjectId(userID)}, function(err, recs) {
         if (err) {
           console.log("error");
         } else {
           if (recs.length > 0) {
             user = recs[0];
             result = {
-              follower: {
+              //following: {
                 user_id: user._id,
-              }
+                facebookid: user.facebookid,
+                username: user.username
+              //}
             }
             callback(result);
           }
@@ -648,19 +1160,19 @@ app.get('/test_DB', function(req, res) {
   var collections = ["users", "tags"]
   var db = mongojs.connect(mongoDbUri, collections);
 
-  db.users.find({sex: "female"}, function(err, users) {
+  db.kt_users.find({sex: "female"}, function(err, users) {
     if( err || !users) console.log("No female users found");
     else users.forEach( function(femaleUser) {
       //console.log(femaleUser);
     });
   });
 
-  db.users.save({email: "srirangan@gmail.com", password: "iLoveMongo", sex: "male"}, function(err, saved) {
+  db.kt_users.save({email: "srirangan@gmail.com", password: "iLoveMongo", sex: "male"}, function(err, saved) {
     if( err || !saved ) console.log("User not saved");
     else console.log("User saved");
   });
 
-  db.users.update({email: "srirangan@gmail.com"}, {$set: {password: "iReallyLoveMongo"}}, function(err, updated) {
+  db.kt_users.update({email: "srirangan@gmail.com"}, {$set: {password: "iReallyLoveMongo"}}, function(err, updated) {
     if( err || !updated ) console.log("User not updated");
     else console.log("User updated");
     res.send("UPDATED");
@@ -735,9 +1247,9 @@ function findIfOriginal(tag, db, callback) {
       if (ownershipRow.placement == (length - 1)) {
 
         var user_id = ownershipRow.user_id;
-        db.users.find({_id: mongojs.ObjectId (user_id)}, function(err, records) {
+        db.kt_users.find({_id: mongojs.ObjectId (user_id)}, function(err, records) {
           if (err) {
-            console.log ("db.users.find-error-" + err);
+            console.log ("db.kt_users.find-error-" + err);
           } else {
             if (records.length > 0) {
               user = records[0];
@@ -823,7 +1335,7 @@ function findPreviousUser(tag, db, callback) {
 
   if (tag.placement == 0) {
     // no previous user
-    db.users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
+    db.kt_users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
       if (err) {
         //console.log("findPreviousUser;place==0;err:"+ err);
         return;
@@ -861,7 +1373,7 @@ function findPreviousUser(tag, db, callback) {
         ownershipRec = records[0];
         // copy paste of above
 
-        db.users.find({_id: mongojs.ObjectId(ownershipRec.user_id)}, function(err, records) {
+        db.kt_users.find({_id: mongojs.ObjectId(ownershipRec.user_id)}, function(err, records) {
           if (err) {
             //console.log("findPreviousUser;place=!0;err:"+ err);
             return;
@@ -986,7 +1498,7 @@ function getUserForTag(tag, db, callback) {
   if (!tag)
     return;
 
-  db.users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
+  db.kt_users.find({_id: mongojs.ObjectId(tag.user_id)}, function(err, records) {
     if (err) {
       //console.log("getUserForTag;err:" + err);
       return;
@@ -1154,13 +1666,13 @@ function findMessages (list, db, callback) {
 		} else {
 			if (records.length > 0) {
 				result = {
-					convo: {
+				//	convo: {
 						partyA: list.partyA,
 						partyB: list.partyB,
 						message: list.message,
 						nameA: list.nameA,
 						nameB: list.nameB
-					}
+				//	}
 				}
 				callback(result);
 			} else {
@@ -1176,17 +1688,20 @@ app.post('/messagehistory', function(req, res) {
 	var recipient = query.recipient;
 	var sender = query.sender;
 
+  console.log(sender);
+  console.log(recipient);
+
 	var db = mongojs.connect(mongoDbUri, collections);
 	res.setHeader('Content-Type', 'application/json');
 
-	db.kt_message.find({$or: [{tID: recipient, fID: sender}, {tID: sender, fID: recipient}]}, { limit : 10, sort : { date : -1 } }, function(err, records) {
+	db.kt_message.find({$or: [{tID: recipient}, {tID: sender}, {fID: recipient}, {fID: sender}]}, function(err, records) {
 		if (err){
 			res.end(JSON.stringify({success: false, error: "messagehistory, error in find"}), null, 3);
 		} else {
 			var length = records.length;
 			if (length == 0) {
 				res.end(JSON.stringify({success: false, error: "messagehistory, doesn't have any messages in db"}), null, 3);
-			} else {
+			} else { 
 				var results = [];
 				var length = records.length;
 				//console.log("/messagehistory:else:length:" + length);
@@ -1228,12 +1743,12 @@ function findMessageHistory (item, db, callback) {
 		} else {
 			if (records.length > 0) {
 				result = {
-					messagehistory: {
+					//messagehistory: {
 						message: item.msg,
 						sender: item.fID,
 						recipient: item.tID,
 						timestamp: item.date
-					}
+					//}
 				}
 				callback(result);
 			} else {
@@ -1269,7 +1784,7 @@ app.post ('/previouspic', function(req, res) {
 						} else {
 							var user_id = recordss[0].user_id;
 							//console.log("user_id:" + user_id);
-							db.users.find({_id: mongojs.ObjectId(user_id)}, function(err, record) {
+							db.kt_users.find({_id: mongojs.ObjectId(user_id)}, function(err, record) {
 								if (err) {
 									res.end(JSON.stringify({success: false}), null, 3);
 								} else {
@@ -1347,7 +1862,7 @@ function findPreviousUserListSeries(currentIndex, recordsLength, recordss, db, r
 function findPreviousUserList (item, db, callback) {
 	if (!item)
 		return;
-	db.users.find({_id: mongojs.ObjectId(item.user_id)}, function(err, records) {
+	db.kt_users.find({_id: mongojs.ObjectId(item.user_id)}, function(err, records) {
 		if (err) {
 			return;
 		} else {
@@ -1384,6 +1899,26 @@ app.post('/ownercount', function(req, res) {
 	});
 });
 
+app.post('/getuser', function(req, res) {
+  var query = req.body;
+  var user = query.user;
+  var db = mongojs.connect(mongoDbUri, collections);
+  res.setHeader('Content-Type', 'application/json');
+  db.kt_users.find({facebookid: user}, function(err, records) {
+    if (err) {
+      res.end(JSON.stringify({success: false}), null, 3);
+    } else {
+      if (records.length == 0) {
+        res.end(JSON.stringify({success: false}), null, 3);
+      } else {
+        var name = records.username;
+        var user_id = records._id;
+        //res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({success: true, name: name, user_id: user_id}), null, 3);
+      }
+    }
+  });
+});
 
 var port = Number(3000);
 //app.listen(port, function() {

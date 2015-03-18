@@ -56,7 +56,14 @@
     $('#messages').append($('<li>').text(msg, fname, fID, tname, tID));
   });
 
-
+    $('form').submit(function() {
+      socket.emit('sign_in', $('#m').val());
+      $('#m').val('');
+      return false;
+  });
+  socket.on('sign_in', function(fbid, userid) {
+    $('messages').append($('<li>').text(fbid, userid));
+  });
 
  $('form').submit(function(){
     socket.emit('loadChat', $('#m').val());
