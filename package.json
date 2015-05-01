@@ -1,6 +1,6 @@
 {
   "name": "kandi-backend-tag",
-  "version": "0.0.64-555",
+  "version": "0.0.64-594",
   "private": true,
   "description": "",
   "main": "web.js",
@@ -17,7 +17,10 @@
     "logfmt": "^1.1.2",
     "mongojs": "0.15.x",
     "socket.io": "^1.2.1",
-    "node-gcm": "0.9.x"
+    "node-gcm": "0.9.x",
+    "gridfs-stream": "1.1.x",
+    "base-64": "0.1.x",
+    "gridjs": "0.1.x"
   },
   "subdomain": "kandi",
   "engines": {
