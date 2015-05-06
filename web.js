@@ -23,7 +23,13 @@ var collections = ["kt_users", "kt_qrcode", "kt_ownership", "kt_message", "kt_gr
 //socket start ****************************************************************************************************
 
 //users currently connected
+// this will be used for messaging
 var clients = {};
+
+//users trying to download 
+// this will be used for users trying to download and upload images/videos
+var downloaders = {};
+var uploaders = {};
 
 var http = require('http').Server(app);
 var server = app.listen(3000);
@@ -38,6 +44,7 @@ io.on('connection', function (socket) {
   //console.log('a user connected:' + socket.id);
   var db = mongojs.connect(mongoDbUri, collections);
 
+// this is the sign in for message
   socket.on('sign_in', function(fbid, ktid) {
     var userFBID = fbid;
     var userKTID = ktid;
@@ -46,6 +53,81 @@ io.on('connection', function (socket) {
     console.log(userKTID + ' has connected');
     //io.to(clients[userFBID]).emit('sign_in', userFBID + ' has connected');
     socket.emit('sign_in', userKTID + ' has connected');
+  });
+
+  socket.on('upload_image', function (kt_id, img, img_caption) {
+    if (!uploaders[kt_id]) {
+      uploaders[kt_id] = socket;
+      socket.id = kt_id;
+      console.log(kt_id, " is attempting to upload_image");
+    }
+    console.log(img);
+    console.log(img_caption);
+
+     var gs = gridjs(db);
+
+     //fs.createReadStream(img).pipe(gs.createWriteStream(img_caption));
+
+    gs.write(img_caption, new Buffer(img), function(err) {
+      console.log('file is written', err);
+      if (!err) {
+        db.kt_images.save({kt_id: kt_id, img_caption: img_caption}, function (err, saved) {
+          if (err||!saved) {
+            console.log(err); 
+          } else {
+            console.log("success");
+          }
+        });
+      }
+    });
+
+     (uploaders[kt_id]).emit('upload_image', "hi!");
+
+     // will probably need to chunk the photo before uploading it
+/**
+    var imageBuffer = new Buffer(img, 'base64');
+    console.log(imageBuffer);
+    fs.writeFile(img_caption, imageBuffer, function (err) {
+      if (err) {
+        console.log(err);
+      } else {
+        fs.createReadStream(img).pipe(gs.createWriteStream(img_caption));
+        uploaders[kt_id].emit('upload_image', "image uploaded");
+      }
+    });
+**/
+  });
+
+  socket.on('download_images', function (kt_id) {
+    if (!downloaders[kt_id]) {
+      downloaders[kt_id] = socket;
+      socket.id = kt_id;
+      console.log(kt_id, " is attempting to download_images");
+    }
+
+    var gs = gridjs(db);
+
+    //console.log('getting messages for: ', kt_id);
+    db.kt_images.find({kt_id: kt_id}, function (err, records) {
+      if (err) {
+        console.log(err);
+      } else {
+        if (records.length == 0) {
+          console.log('no records found');
+        } else {
+          var recordsLength = records.length;
+          for (i = 0; i < recordsLength; i++) {
+            var img_caption = records[i].img_caption;
+            console.log(img_caption);
+            gs.read(img_caption, function (err, buffer) {
+              console.log('file is read', buffer);
+              (downloaders[kt_id]).emit('download_images', buffer);
+            });
+          }
+        }
+      }
+    });
+
   });
 
   socket.on('get_messages', function(ktid) {
@@ -297,15 +379,13 @@ io.on('connection', function (socket) {
     // this function has no idea what userFBID is, so nothing is deleted
     //delete clients[userFBID];
     delete clients[socket.id];
-    console.log(clients);
+    delete uploaders[socket.id];
+    delete downloaders[socket.id];
+    //console.log(clients);
+    console.log("someone has disconnected");
     //console.log(socket);
   });
 
-
-  socket.on('chat message', function(msg, from, to) {
-    console.log(from + ' says: ' + msg + ' to ' + to);
-    io.emit('chat message', from + ": " + msg);
-  });
 
 //end of socket  
 //need to set up time out just in case user doesnt disconnect
@@ -314,6 +394,7 @@ io.on('connection', function (socket) {
 
 
 //socket end ****************************************************************************************************
+
 
 /**
 
@@ -332,6 +413,74 @@ app.get('/', function(req, res) {
   res.send('404 page not found');
 });
 
+// get all images based on kt_id
+app.post('/download_my_images', function (req, res) {
+  console.log("download_my_images");
+  var query = req.body;
+  var kt_id = query.kt_id;
+  console.log(kt_id);
+  var db = mongojs.connect(mongoDbUri, collections);
+  var gs = gridjs(db);
+
+  db.kt_images.find({kt_id: kt_id}, function (err, records) {
+    if (err) {
+      console.log(err);
+    } else {
+      if (records.length == 0) {
+        console.log("no images found for user");
+        res.end("no images found for user");
+      } else {
+        var imgs = new Array();
+        for (var i = 0; i < records.length; i++) {
+          var img_caption = records[i].img_caption;
+          var img = gs.read(img_caption, function (err, buffer) {
+            console.log('file is read', buffer);
+            imgs.push(img);
+            fs.createReadStream(img).pipe(res); // this doesnt work, file is too large
+          });
+        }
+        res.end(JSON.stringify(imgs));
+      }
+    }
+  });
+});
+
+
+// save images
+app.post('/save_user_images', function (req, res) {
+  var query = req.body;
+  var kt_id = query.kt_id;
+  var img = query.image;
+  var img_caption = query.img_caption; // this will be the name of the img file and also a reference in the kt_images
+  var tags = query.tags;
+  console.log(kt_id);
+  console.log(img);
+
+  var db = mongojs.connect(mongoDbUri, collections);
+  var gs = gridjs(db);
+  fs.createReadStream(img).pipe(gs.createWriteStream(img_caption));
+
+/**
+  gs.write(img_caption, new Buffer(img), function (err) {
+    if (err) {
+      console.log(err);
+    } else {
+      console.log("finished");
+      db.kt_images.save({kt_id: kt_id, img_caption: img_caption, tags: tags}, function (err, saved) {
+        if (err||!saved) {
+          console.log(err);
+        } else {
+          console.log("saved into kt_images");
+        }
+      });
+      res.end("finished");
+    }
+  });
+**/
+
+});
+
+
 // save image
 app.post('/save_user_image', function (req, res) {
   console.log("save_user_image called");
@@ -340,10 +489,12 @@ app.post('/save_user_image', function (req, res) {
   //Instead im going to try to decode the encoded img string back into an image
   //var img = base64.decode(query.img); // atob() is undefined..
   //var decodedImage = new Buffer(query.img, 'base64').toString('binary');
+
   var img = query.img;
   var img_caption = query.img_caption;
   var kt_id = query.kt_id; // id of the image owner
-  console.log("kt_id: " + kt_id);
+  var tags = query.tags;
+  //console.log("kt_id: " + kt_id);
   var db = mongojs.connect(mongoDbUri, collections); // dont think it makes a difference as long as db is defined
 
   // getting the ENOENT error opening 'android.graphic.Bitmamp@...'
@@ -351,16 +502,46 @@ app.post('/save_user_image', function (req, res) {
   // or does it mean i cant access the bitmap?
 
   //var db = mongojs(mongoDbUri);
-  var gs = gridjs(db);
+  var gs = gridjs(db); // using a mongo instance
+
+// maybe i need to use a write stream in java
+
+/**
+  var readStream = fs.createReadStream(img);
+  var writeStream = gs.createWriteStream(img_caption);
+
+  readStream.on('data', function (chunk) {
+    writeStream.write(chunk);
+    console.log("written");
+  });
+
+  readStream.pipe(writeStream);
+
+**/
 
   // WORKING!!!
   // make sure to set aliases, metadata (upload data is done automatically)
-  gs.write(img_caption, new Buffer(img), function (err) {
+  gs.write(img_caption, new Buffer(img),function (err) {
     console.log('file is written', err);
     if (!err) {
-      res.end("Successfully saved to server!");
+      db.kt_images.find({img_caption: img_caption}, function (err, records) {
+        if (err) {
+          console.log(err);
+        } else {
+          if (records.length == 0) {
+            db.kt_images.save({kt_id: kt_id, img_caption: img_caption, tags: tags}, function (err, saved) {
+              if (err||!saved) {
+                console.log(err);
+              } else {
+                res.end("successfully saved image");
+              }
+            });
+          }
+        }
+      });
     }
-  })
+  });
+
 
 });
 
