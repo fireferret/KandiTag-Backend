@@ -18,18 +18,26 @@ var gridjs = require('gridjs');
 var fs = require('fs');
 
 var mongoDbUri = "mongodb://nodejitsu:7099899734d1037edc30bc5b2a90ca84@troup.mongohq.com:10043/nodejitsudb1189483832";
-var collections = ["kt_users", "kt_qrcode", "kt_ownership", "kt_message", "kt_groupmessage","kt_token", "kt_images", "kt_gifs", "kt_videos"]
+var collections = ["kt_users", "kt_qrcode", "kt_ownership", "kt_message", "kt_group_message","kt_token", "kt_images", "kt_gifs", "kt_videos", "kt_profile_images", "kt_kanditags"];
 
 //socket start ****************************************************************************************************
 
 //users currently connected
 // this will be used for messaging
 var clients = {};
-
 //users trying to download 
 // this will be used for users trying to download and upload images/videos
 var downloaders = {};
 var uploaders = {};
+//users looking through their feed
+var feeders = {};
+// users searching for tickets
+var exchangers = {};
+// users trying to register kanditags
+var registers = {};
+// users reopening their app in need to downloading old messages/data
+var returning = {};
+
 
 var http = require('http').Server(app);
 var server = app.listen(3000);
@@ -45,33 +53,498 @@ io.on('connection', function (socket) {
   var db = mongojs.connect(mongoDbUri, collections);
 
 // this is the sign in for message
-  socket.on('sign_in', function(fbid, ktid) {
-    var userFBID = fbid;
-    var userKTID = ktid;
-    clients[ktid] = socket;
-    socket.id = ktid;
-    console.log(userKTID + ' has connected');
-    //io.to(clients[userFBID]).emit('sign_in', userFBID + ' has connected');
-    socket.emit('sign_in', userKTID + ' has connected');
+  socket.on('sign_in', function (kt_id) {
+    clients[kt_id] = socket;
+    socket.id = kt_id;
+    console.log(kt_id,  " has connected");
+    clients[kt_id].emit('sign_in', "you are connected");
   });
 
-  socket.on('upload_image', function (kt_id, img, img_caption) {
+  socket.on('download_archived_group_messages', function (kt_id) {
+  	if (!returning[kt_id]) {
+  		returning[kt_id] = socket;
+  		socket.id = kt_id;
+  		console.log(kt_id, " is downloading archived group messages");
+  	}
+
+  	// query db for all group messages where from_id is kt_id
+  	db.kt_group_message.find({from_id: kt_id}, function (err, records) {
+  		if (err) {
+  			console.log(err);
+  			return;
+  		}
+
+  		if (records.length == 0) {
+  			console.log("no records found");
+  			returning[kt_id].emit("download_archived_group_messages", "no records found");
+  			return;
+  		}
+
+  		// iterate over each row to get contents of each message
+  		var recordsLength = records.length;
+  		(function iterator(i) {
+  			if (i < recordsLength) {
+  				var message = records[i].message;
+  				var to_kandi_id = records[i].to_kandi_id;
+  				var to_kandi_name = records[i].to_kandi_name;
+  				var timestamp = records[i].timestamp;
+  				var from_name = records[i].from_name;
+  				returning[kt_id].emit("download_archived_group_messages", {message: message, from_id: kt_id, from_name: from_name, to_kandi_id: to_kandi_id, to_kandi_name: to_kandi_name, timestamp: timestamp});
+  				iterator(i+1);
+  			}  			
+
+  		})(0);
+
+
+  	});
+
+
+  	// query db for all group messages where kt_id is part of the kanditag group
+  	db.kt_ownership.find({kt_id: kt_id}, function (err, records) {
+  		if (err) {
+  			console.log(err);
+  			return;
+  		}
+
+  		if (records.length == 0) {
+  			console.log("no records found");
+  			returning[kt_id].emit("download_archived_group_messages", "no records found");
+  		}
+
+  		var recordsLength = records.length;
+  		(function iterator(i) {
+  			if (i < recordsLength) {
+  				// get kandi_id
+  				var kandi_id = records[i].kandi_id;
+  				// using kandi_id query db for all group messages that are to_kandi_id
+  				db.kt_group_message.find({to_kandi_id: kandi_id}, function (err, records) {
+  					if (err) {
+  						console.log(err);
+  						return;
+  					}
+
+  					if (records.length == 0) {
+  						console.log("no records found");
+  						returning[kt_id].emit("download_archived_group_messages", "no records found");
+  						return;
+  					}
+
+  					// now i have the rows where kandi_ids equals given kandi_ids
+  					// iterate over each of the different kandi_ids to get all messages
+  					(function nested_iterator(n) {
+  						if (n < records.length) {
+  							var message = records[n].message;
+  							var from_id = records[n].from_id;
+  							var from_name = records[n].from_name;
+  							var timestamp = records[n].timestamp;
+  							db.kt_kanditags.find({kandi_id: kandi_id}, function (err, records) {
+  								if (err) {
+  									console.log(err);
+  									return;
+  								}
+
+  								// TODO
+  								// it will be faster if i grab the kandi name before doing the nested iteration
+  								var kandi_name = records[0].kandi_name;
+  								returning[kt_id].emit("download_archived_group_messages", {message: message, from_id: from_id, from_name: from_name, to_kandi_id: kandi_id, to_kandi_name: kandi_name, timestamp: timestamp});
+  							});
+  							nested_iterator(n+1);
+  						}
+  					})(0);
+
+  				});
+
+  				iterator(i+1);
+  			}  			
+
+  		})(0);
+
+  	});
+
+  });
+
+  socket.on('download_archived_messages', function (kt_id) {
+  	if (!returning[kt_id]) {
+  		returning[kt_id] = socket;
+  		socket.id = kt_id;
+  		console.log(kt_id, " is downloading archived messages");
+  	}
+
+  	// query the database for all messages that are either to or from given kt_id
+  	db.kt_message.find({$or: [{to_id: kt_id}, {from_id: kt_id}]}, function (err, records) {
+  		if (err) {
+  			console.log(err);
+  			return;
+  		}
+
+  		// if no records are found end socket connection
+  		if (records.length == 0) {
+  			console.log("no records found");
+  			returning[kt_id].emit("download_archived_messages", "no records found");
+  			socket.disconnect();
+  		}
+
+  		// run through all the records and emit messages to client, client will sort them by date upon receiving them
+  		var recordsLength = records.length;
+  		(function iterator(i) {
+  			if (i < recordsLength) {
+  				var message = records[i].message;
+  				var to_id = records[i].to_id;
+  				var from_id = records[i].from_id;
+  				var to_name = records[i].to_name;
+  				var from_name = records[i].from_name;
+  				var timestamp = records[i].timestamp;
+  				returning[kt_id].emit("download_archived_messages", {message: message, to_id: to_id, from_id: from_id, to_name: to_name, from_name: from_name, timestamp: timestamp});
+  				// iterate
+  				iterator(i+1);
+  			}
+  		})(0);
+
+  		// will need a time out to disconnect the socket when this is all done
+
+  	});
+  });
+
+	socket.on('add_kandi_name', function (kt_id, kandi_id, kandi_name) {
+		if (!registers[kt_id]) {
+			registers[kt_id] = socket;
+			socket.id = kt_id;
+			console.log(kt_id, " is naming their kanditag");
+		}
+
+		// query kt_kanditag and update the info
+		db.kt_kanditags.update({kandi_id: kandi_id, kt_id: kt_id}, {$set: {"kandi_name": kandi_name}}, function (err) {
+			if (err) {
+				console.log(err);
+				return;
+			}
+
+			registers[kt_id].emit("add_kandi_name", kandi_name + " has been saved");
+			socket.disconnect();
+		});
+
+	});
+
+
+	socket.on('display_kanditag', function (kt_id, kandi_id) {
+		if (!registers[kt_id]) {
+			registers[kt_id] = socket;
+			socket.id = kt_id;
+			console.log(kt_id, " is checking a KandiTag");
+		}
+
+		// query ownership for all users with kandi_id
+		db.kt_ownership.find({kandi_id: kandi_id}, function (err, records) {
+			if (err) {
+				console.log(err);
+				return;
+			}
+
+			// iterate through the users and emit them back to kt_id
+			var recordsLength = records.length;
+			var counter = 0;
+			(function iterator(i) {
+				if (i < recordsLength) {
+					var user_id = records[i].kt_id;
+					var placement = records[i].placement;
+					db.kt_users.find({_id: mongojs.ObjectId(user_id)}, function (err, records) {
+						var ktid = records[0]._id;
+						var username = records[0].username;
+						registers[kt_id].emit("display_kanditag", JSON.stringify({kt_id: ktid, username: username, kandi_id: kandi_id, placement: placement}));
+						counter +=1;
+						if (counter == recordsLength) {
+							socket.disconnect();
+						}
+					});
+					iterator(i+1);
+				}
+			})(0);
+		});
+
+	});
+
+
+  socket.on('register_kanditag', function (kt_id, my_username, kandi_id) {
+  	if (!registers[kt_id]) {
+  		registers[kt_id] = socket;
+  		socket.id = kt_id;
+  		console.log(kt_id, " is registering a KandiTag");
+  	}
+
+  	var users = []; // array to hold kt_ids of all owners
+  	var owned = false; // boolean to tell if user's id is already registered
+
+  	// grab the name of the kanditag
+
+  	// find every row in kt_ownership where kandi_id == param
+  	db.kt_ownership.find({kandi_id: kandi_id}, function (err, records) {
+  		if (err) {
+  			console.log(err);
+  			return;
+  		}
+
+  		// if no records are found, save the kandi_id into kt_kanditags under given kt_id
+  		if (records.length == 0) {
+  			db.kt_kanditags.save({kt_id: kt_id, kandi_id: kandi_id}, function (err, saved) {
+  				if (err || !saved) {
+  					console.log(err);
+  					return;
+  				}
+
+  				// then save the kandi_id into kt_ownership with placement of 0
+  				db.kt_ownership.save({kandi_id: kandi_id, kt_id: kt_id, placement: 0}, function (err, saved) {
+  					if (err || !saved) {
+  						console.log(err);
+  						return;
+  					}
+
+  					// emit response to user and disconnect
+  					registers[kt_id].emit("register_kanditag", "successfully registered new KandiTag");
+  					console.log(kt_id, " successfully registered new KandiTag");
+  					// if this is the recponse send the client should automatically make a call to add_kandi_name
+  					socket.disconnect();
+
+  				});
+  			});
+  			return;
+  		}
+
+  		// get count of how many users already own the kanditag when records are found
+  		var user_count = records.length;
+  		var kandi_name = "default name";
+
+  		// add users into array
+  		for (var i = 0; i < user_count; i++) {
+  			var user = records[i].kt_id;
+  			if (user == kt_id) {
+  				owned = true;
+
+  				// here I should emit the data for the other users for user to see
+  				registers[kt_id].emit("register_kanditag", "cannot re-registered");
+  				socket.disconnect();
+  				return;
+  			}
+  			users.push(user);
+  		}
+
+  		// grab kandi name from kt_kanditags
+  		db.kt_kanditags.find({kandi_id: kandi_id}, function (err, records) {
+  			if (err) {
+  				console.log(err);
+  				return;
+  			}
+
+  			kandi_name = records[0].kandi_name;
+  		});
+
+  		// there can be up to 8 users on one kanditag, so make sure current count does not exceed 8
+  		// also user cannot already be present in list
+  		if (user_count < 8 && !owned) {
+
+  			// save into kt_ownership with placement number
+  			db.kt_ownership.save({kandi_id: kandi_id, kt_id: kt_id, placement: user_count}, function (err, saved) {
+  				if (err || !saved) {
+  					console.log(err);
+  					return;
+  				}
+
+  				// push notifications for previous users
+  				// here emit the user rows information back to user (to add these users as friends)
+  				db.kt_ownership.find({kandi_id: kandi_id}, function (err, records) {
+  					if (err) {
+  						console.log(err);
+  						return;
+  					}
+
+  				
+  				for (var i = 0; i <= user_count; i++) {
+  					var user_id = records[i].kt_id; // grab the kt_id from each of the rows
+
+  					// do not send notification to self
+  					if (kt_id != user_id) {
+  						var query_id = user_id;
+
+	  					// query kt_user with the kt_id to get the gcm/apn id
+	  					db.kt_users.find({_id: mongojs.ObjectId(query_id)}, function (err, records) {
+	  						if (err) {
+	  							console.log(err);
+	  							return;
+	  						}
+
+	  						// grab name of the user
+	  						var username = records[0].username;
+	  						//console.log(username);
+
+	  						// emit both the kt_id, username and placement of each user back as result
+	  						db.kt_ownership.find({kandi_id: kandi_id, kt_id: query_id}, function (err, records) {
+	  							if (err) {
+	  								console.log(err);
+	  								return;
+	  							}
+
+	  							var placement = records[0].placement;
+	  							registers[kt_id].emit("register_kanditag", JSON.stringify({kt_id: query_id, username: username, kandi_id: kandi_id, placement: placement}));
+
+	  						});
+
+	  						// here are the two push ids, one of them will be null for each user
+	  						var gcm_id = records[0].gcm_id;
+	  						var apn_id = records[0].apn_id;
+
+	  						console.log(gcm_id);
+	  						console.log(apn_id);
+
+	  						// gcm push id
+	  						if (gcm_id != null) {
+
+	  							var notif = new gcm.Message({
+	  								collapseKey: 'register_kanditag',
+	  								delayWhileIdle: false,
+	  								data: {
+	  									kt_id: kt_id,
+	  									username: my_username,
+	  									kandi_name: kandi_name
+	  								}
+	  							});
+
+	  							// will need to get the production key
+	  							var push = new gcm.Sender('AIzaSyAv73kah7w3mlbQ7sVsvhaiIGfKtCH4OEU');
+	  							push.send(notif, gcm_id, function (err, results) {
+	  								if (err) {
+	  									console.log(err);
+	  									return;
+	  								}
+
+	  								console.log(results);
+	  							});
+	  						}
+
+
+
+	  						if (apn_id != null) {
+	  							console.log("need to set up apn push");
+	  						}
+
+	  					});
+					}
+  					
+  				}
+
+  				// emit resonse to user and disconnect
+  				registers[kt_id].emit("register_kanditag", "successfully registered a KandiTag");
+  				console.log(kt_id, " successfully registered a KandiTag");
+
+  				});
+  			});
+  		} else {
+  			console.log("kanditag has reached its registration limit");
+  		}
+
+  	});
+  });
+
+socket.on('download_archived_friends', function (kt_id, kandi_id) {
+	if (!returning[kt_id]) {
+		returning[kt_id] = socket;
+		socket.id = kt_id;
+		console.log(kt_id, " is downloading archived friends");
+	}
+
+	// query ownership where rows contain kandi_id
+	db.kt_ownership.find({kandi_id: kandi_id}, function (err, records) {
+		if (err) {
+			console.log(err);
+			return;
+		}
+
+		if (records.length == 0) {
+			console.log("no records found");
+			returning[kt_id].emit("download_archived_friends", "no records found for " + kandi_id);
+			socket.disconnect();
+		}
+
+		var recordsLength = records.length;
+		(function iterator(i) {
+  			if (i < recordsLength) {
+  				var placement = records[i].placement;
+  				var user_id = records[i].kt_id;
+  				// query kt_user for username
+  				db.kt_users.find({kt_id: user_id}, function (err, records) {
+  					if (err) {
+  						console.log(err);
+  						return;
+  					}
+
+  					var username = records[0].username;
+  					returning[kt_id].emit("download_archived_friends", {kt_id: user_id, username: username, kandi_id: kandi_id, placement: placement});
+  				});
+  				iterator(i+1);
+  			}  			
+
+  		})(0);
+
+	});
+});
+
+socket.on('download_archived_kanditags', function (kt_id) {
+	if (!returning[kt_id]) {
+		returning[kt_id] = socket;
+		socket.id = kt_id;
+		console.log(kt_id, " is downloading archived kanditags");
+	}
+
+	// query ownership where rows contain kt_id
+	db.kt_ownership.find({kt_id: kt_id}, function (err, records) {
+		if (err) {
+			console.log(err);
+			return;
+		}
+
+		// if no records found disconnect socket
+		if (records.length == 0) {
+			console.log("no records found");
+			returning[kt_id].emit("download_archived_kanditags", "no records found");
+			socket.disconnect();
+		}
+
+		var recordsLength = records.length;
+		(function iterator(i) {
+  			if (i < recordsLength) {
+  				var kandi_id = records[i].kandi_id;
+  				var placement = records[i].placement;
+  				// query db for kandi_name
+  				db.kt_kanditags.find({kandi_id: kandi_id}, function (err, records) {
+  					if (err) {
+  						console.log(err);
+  						return;
+  					}
+
+  					var kandi_name = records[0].kandi_name;
+  					returning[kt_id].emit("download_archived_kanditags", {kandi_id: kandi_id, kandi_name: kandi_name});
+  				});
+  				iterator(i+1);
+  			}  			
+
+  		})(0);
+
+	});
+
+});
+
+
+  socket.on('upload_profile_image', function (kt_id, img) {
     if (!uploaders[kt_id]) {
       uploaders[kt_id] = socket;
       socket.id = kt_id;
-      console.log(kt_id, " is attempting to upload_image");
+      console.log(kt_id, " is attempting to upload_profile_image");
     }
-    console.log(img);
-    console.log(img_caption);
 
-     var gs = gridjs(db);
+    var gs = gridjs(db);
 
-     //fs.createReadStream(img).pipe(gs.createWriteStream(img_caption));
-
-    gs.write(img_caption, new Buffer(img), function(err) {
+    gs.write(kt_id, new Buffer(img), function(err) {
       console.log('file is written', err);
       if (!err) {
-        db.kt_images.save({kt_id: kt_id, img_caption: img_caption}, function (err, saved) {
+        db.kt_profile_images.save({kt_id: kt_id}, function (err, saved) {
           if (err||!saved) {
             console.log(err); 
           } else {
@@ -81,21 +554,80 @@ io.on('connection', function (socket) {
       }
     });
 
-     (uploaders[kt_id]).emit('upload_image', "hi!");
+  });
 
-     // will probably need to chunk the photo before uploading it
-/**
-    var imageBuffer = new Buffer(img, 'base64');
-    console.log(imageBuffer);
-    fs.writeFile(img_caption, imageBuffer, function (err) {
+  socket.on('download_profile_image', function (kt_id) {
+    if (!downloaders[kt_id]) {
+      downloaders[kt_id] = socket;
+      socket.id = kt_id;
+      console.log(kt_id, " is attempting to download_images");
+    }
+
+    var gs = gridjs(db);
+
+    //console.log('getting messages for: ', kt_id);
+    db.kt_profile_images.find({kt_id: kt_id}, function (err, records) {
       if (err) {
         console.log(err);
       } else {
-        fs.createReadStream(img).pipe(gs.createWriteStream(img_caption));
-        uploaders[kt_id].emit('upload_image', "image uploaded");
+        if (records.length == 0) {
+          console.log('no records found');
+        } else {
+          var user = records[0].kt_id;
+          gs.read(user, function (err, buffer) {
+              console.log('file is read', buffer);
+              (downloaders[kt_id]).emit('download_profile_image', buffer);
+            });
+        }
       }
     });
-**/
+
+  });
+
+  socket.on('upload_image', function (kt_id, img, img_caption) {
+    if (!uploaders[kt_id]) {
+      uploaders[kt_id] = socket;
+      socket.id = kt_id;
+      console.log(kt_id, " is attempting to upload_image");
+    }
+
+   	console.log(img);
+    var gs = gridjs(db);
+
+    gs.write(img_caption, new Buffer(img), function(err) {
+      if (err) {
+      	console.log(err);
+      	return;
+      }
+
+      db.collection('fs.files').find({"filename": img_caption}, function (err, records) {
+            	if (err) {
+            		console.log(err);
+            		socket.disconnect();
+            		return;
+            	}
+
+            	var found_id = records[0]._id;
+            	console.log(found_id);
+
+            	// got emmmm
+            	db.collection('fs.files').update({_id: mongojs.ObjectId(found_id)}, {$set: {'metadata': {"user_id" : kt_id}}}, function (error) {
+            		if (error) {
+            			console.log(error);
+            			return;
+            		}
+
+            		console.log("successfully added metadata");
+            	});
+
+            	console.log("found");
+            	(uploaders[kt_id]).emit('upload_image', "saved into the db as " + found_id);
+            	socket.disconnect();
+
+            });
+      
+    });
+
   });
 
   socket.on('download_images', function (kt_id) {
@@ -130,6 +662,98 @@ io.on('connection', function (socket) {
 
   });
 
+  socket.on('test_download_my_own_feed', function (kt_id) {
+  	if (!feeders[kt_id]) {
+  		feeders[kt_id] = socket;
+  		socket.id = kt_id;
+  		console.log(kt_id, " is downloading their own feed");
+  	}
+
+  	var gs = gridjs(db);
+
+  	db.collection('fs.files').find({'metadata': {'user_id': kt_id}}, function (err, records) {
+  		if (err) {
+  			console.log(err);
+  			return;
+  		}
+
+  		var recordsLength = records.length;
+  		(function iterator(i) {
+  			if (i < recordsLength) {
+  				var filename = records[i].filename;
+  				var metadata = records[i].metadata;
+  				var user_id = records[i].metadata.user_id;
+  				console.log(filename);
+  				console.log(metadata);
+  				console.log(user_id);
+  				gs.read(filename, function (err, buffer) {
+  					console.log(buffer);
+  					feeders[kt_id].emit('test_download_my_own_feed', buffer, user_id);
+  				});
+  				iterator(i+1);
+  			}  			
+
+  		})(0);
+
+  		// disconnect definitely shouldnt be called when using a non blocking iterator
+  		console.log("finished downloading own feed");
+  		//socket.disconnect();
+
+  	});
+  });
+
+
+  socket.on('download_feed', function (kt_id, kt_ids) {
+  	if (!feeders[kt_id]) {
+  		feeders[kt_id] = socket;
+  		socket.id = kt_id;
+  		console.log(kt_ids);
+  		console.log(kt_id, " is downloading their feed");
+  	}
+
+  	var gs = gridjs(db);
+  	var test_array = [1, 2, 3];
+  	console.log(test_array);
+
+  	// will need to refactor alot of this to become non-blocking
+
+  	var ktids = [];
+  	for (var i = 0; i < kt_ids.length; i++) {
+  		ktids.push(kt_ids[i]);
+  		console.log(kt_ids[i]);
+  	}
+
+  	ktids.forEach(function (ktid) {
+  		console.log(ktid);
+  		db.kt_images.find({kt_id: ktid}, function (err, records) {
+  			if (err) {
+  				console.log(err);
+  				feeders[kt_id].emit('download_feed', err);
+  				//socket.disconnect();
+  				return;
+  			}
+
+  			if (records.length == 0) {
+  				console.log('no records found');
+  				feeders[kt_id].emit('download_feed', "no records");
+  				//socket.disconnect();
+  				return;
+  			}
+
+  			var recordsLength = records.length;
+  			for (i = 0; i < recordsLength; i++) {
+  				var img_cation = records[i].img_caption;
+  				gs.read(img_caption, function (err, buffer) {
+  					console.log('file read: ', buffer);
+  					feeders[kt_id].emit('download_feed', buffer);
+  				});
+  			}
+  		});
+  	});
+  	socket.disconnect();
+  });
+
+
   socket.on('get_messages', function(ktid) {
     var userKTID = ktid;
     if (!clients[userKTID]) {
@@ -158,6 +782,8 @@ io.on('connection', function (socket) {
       }
     });
   });
+
+  /**
 
   socket.on('group_message', function (message, from_id, from_name, kandi_id, kandi_name) {
     var messageTimeStamp = Date.now();
@@ -218,7 +844,188 @@ io.on('connection', function (socket) {
     });
   });
 
-  socket.on('privatemessage', function (message, to_id, from_id, to_name, from_name) {
+**/
+
+	socket.on('group_message', function (object) {
+		var timestamp = Date.now();
+
+		var message = object.message;
+		var from_id = object.from_id;
+		var from_name = object.from_name;
+		var to_kandi_id = object.to_kandi_id;
+		var to_kandi_name = object.to_kandi_name;
+
+		if (!clients[from_id]) {
+			clients[from_id] = socket.id;
+		}
+
+			// save message into db
+			db.kt_group_message.save({message: message, from_id: from_id, from_name: from_name, to_kandi_id: to_kandi_id, to_kandi_name: to_kandi_name, timestamp: timestamp}, function (err, saved) {
+				if (err || !saved) {
+					console.log(err);
+					return;
+				}
+
+				// query kt_ownership for every user where kandi_id : to_kandi_id
+				db.kt_ownership.find({kandi_id: to_kandi_id}, function (err, records) {
+					if (err) {
+						console.log(err);
+						return;
+					}
+
+					// grab kt_id's for each of the users
+					// check if user is online
+					// if online emit else notify
+
+					var recordsLength = records.length;
+					(function iterator(i) {
+						if (i < recordsLength) {
+							var kt_id = records[i].kt_id;
+							if (clients[kt_id] != undefined) {
+								// online
+								clients[kt_id].emit("group_message", JSON.stringify({message: message, from_id: from_id, from_name: from_name, to_kandi_id: to_kandi_id, to_kandi_name: to_kandi_name, timestamp: timestamp}));
+							} else if (clients[kt_id] == undefined) {
+								// offline
+								// query kt_users for gcm/apn id
+								db.kt_users.find({_id: mongojs.ObjectId(kt_id)}, function (err, records) {
+									if (err) {
+										console.log(err);
+										return;
+									}
+
+									var gcm_id = records[0].gcm_id;
+									var apn_id = records[0].apn_id;
+
+									if (gcm_id != null) {
+										var notif = new gcm.Message({
+											collapseKey: 'group_message',
+											delayWhileIdle: false,
+											data: {
+												message: message,
+												from_id: from_id,
+												from_name: from_name,
+												to_kandi_id: to_kandi_id,
+												to_kandi_name: to_kandi_name,
+												timestamp: timestamp
+											}
+										});
+										var push = new gcm.Sender('AIzaSyAv73kah7w3mlbQ7sVsvhaiIGfKtCH4OEU');
+										push.send(notif, gcm_id, function (err, result) {
+											if (err) {
+												console.log(err);
+											}
+
+											console.log(result);
+										});
+									}
+
+									if (apn_id != null) {
+										// TODO set up apn
+									}
+
+								});
+
+							}
+
+							iterator(i+1);
+						}
+					})(0);
+
+					clients[from_id].emit("group_message", JSON.stringify({message: message, from_id: from_id, from_name: from_name, to_kandi_id: to_kandi_id, to_kandi_name: to_kandi_name, timestamp: timestamp}));
+
+
+				});
+
+			});
+
+	});
+
+	socket.on('message', function (object) {
+		var timestamp = Date.now();
+
+		var message = object.message;
+		var from_id = object.from_id;
+		var from_name = object.from_name;
+		var to_id = object.to_id;
+		var to_name = object.to_name;
+
+		if (!clients[from_id]) {
+			clients[from_id] = socket.id;
+		}
+
+		// save the message into the db
+		db.kt_message.save({message: message, from_id: from_id, from_name: from_name, to_id: to_id, to_name: to_name, timestamp: timestamp}, function (err, saved) {
+			if (err || !saved) {
+				console.log(err);
+				return;
+			}
+
+			// now find the saved message
+			db.kt_message.find({message: message, from_id: from_id, from_name: from_name, to_id: to_id, to_name: to_name, timestamp: timestamp}, function (err, records) {
+				if (err) {
+					console.log(err);
+					return;
+				}
+
+				// check if to_id user is online
+
+				if (clients[to_id] != undefined) {
+					// if online, emit message
+					clients[from_id].emit('message', JSON.stringify({message: message, from_id: from_id, from_name: from_name, to_id: to_id, to_name: to_name, timestamp: timestamp}));
+					clients[to_id].emit('message', JSON.stringify({message: message, from_id: from_id, from_name: from_name, to_id: to_id, to_name: to_name, timestamp: timestamp}));
+				} else if (clients[to_id] == undefined) {
+					// not online, emit to self and notify message
+					clients[from_id].emit('message', JSON.stringify({message: message, from_id: from_id, from_name: from_name, to_id: to_id, to_name: to_name, timestamp: timestamp}));
+					db.kt_users.find({_id: mongojs.ObjectId(to_id)}, function (err, records) {
+						if (err) {
+							console.log(err);
+							return;
+						}
+
+						var gcm_id = records[0].gcm_id;
+						var apn_id = records[0].apn_id;
+
+						if (gcm_id != null) {
+							var notif = new gcm.Message({
+								collapseKey: 'message',
+								delayWhileIdle: false,
+								data: {
+									message: message,
+									from_id: from_id,
+									from_name: from_name,
+									to_id: to_id,
+									to_name: to_name,
+									timestamp: timestamp
+								}
+							});
+							var push = new gcm.Sender('AIzaSyAv73kah7w3mlbQ7sVsvhaiIGfKtCH4OEU');
+							push.send(notif, gcm_id, function (err, result) {
+								if (err) {
+									console.log(err);
+								}
+
+								console.log(result);
+							});
+						}
+
+						if (apn_id != null) {
+							// TODO set up
+						}
+
+
+					});
+				}
+
+			});
+
+		});
+
+
+	});
+
+/**
+
+  socket.on('message', function (message, from_id, from_name, to_id, to_name) {
     var messageTimeStamp = Date.now();
     if (!clients[from_id]) {
       clients[from_id] = socket.id;
@@ -226,48 +1033,46 @@ io.on('connection', function (socket) {
 
     //clients[recipientID] may still be online, make sure to disconnect from the socket when the screen is turned off
     if (clients[to_id] != undefined) {
-      db.kt_message.save({message: message, from_id: from_id, to_id: to_id, from_name: from_name, to_name: to_name, timestamp: messageTimeStamp}, function(err, saved) {
+      db.kt_message.save({message: message, to_id: to_id, from_id: from_id, to_name: to_name, from_name: from_name, timestamp: messageTimeStamp}, function(err, saved) {
         if (err) {
           console.log("recipient online but error saving message into database");
           //clients[senderID] = socket;
-          (clients[from_id]).emit('privatemessage', "message failed to send");
+          (clients[from_id]).emit('message', "message failed to send");
         } else {
           console.log("recipient online and successfully saved message into database");
-          db.kt_message.find({message: message, from_id: from_id, to_id: to_id, timestamp: messageTimeStamp}, function (err, records) {
+          db.kt_message.find({message: message, to_id: to_id, from_id: from_id, timestamp: messageTimeStamp}, function (err, records) {
             if (err) {
               console.log("error getting saved message from db");
             } else {
-             //clients[senderID] = socket;
-              (clients[from_id]).emit('privatemessage', JSON.stringify({records: records}));
-              //clients[recipientID] = socket;
-              (clients[to_id]).emit('privatemessage', JSON.stringify({records: records}));
+              (clients[from_id]).emit('message', JSON.stringify({records: records}));
+              (clients[to_id]).emit('message', JSON.stringify({records: records}));
             }
           });
         }
       });
     } else if (clients[to_id] == undefined) {
       //save message and retry send
-      db.kt_message.save({message: message, from_id: from_id, to_id: to_id, from_name: from_name, to_name: to_name, timestamp: messageTimeStamp}, function(err, saved) {
+      db.kt_message.save({message: message, to_id: to_id, from_id: from_id, to_name: to_name, from_name: from_name, timestamp: messageTimeStamp}, function(err, saved) {
         if (err) {
           console.log("recipient offline and error saving message into database");
         //alert them that the message send failed
-          (clients[from_id]).emit('privatemessage', "message failed to send");
+          (clients[from_id]).emit('message', "message failed to send");
         } else {
           console.log("recipient offline but successfully saved message into database");
-          db.kt_message.find({message: message, from_id: from_id, to_id: to_id, timestamp: messageTimeStamp}, function (err, records) {
+          db.kt_message.find({message: message, to_id: to_id, from_id: from_id, timestamp: messageTimeStamp}, function (err, records) {
               if (err) {
                 console.log("error getting saved message from db");
               } else {
-                (clients[from_id]).emit('privatemessage', JSON.stringify({records: records}));
+                (clients[from_id]).emit('message', JSON.stringify({records: records}));
               }
           });
 
           db.kt_users.find({_id: to_id, username: to_name}, function (err, records) {
             if (err) {
-              console.log("socket.on.privatemessage: error in finding user's token");
+              console.log("socket.on.message: error in finding user's token");
             } else {
               if (records.length == 0) {
-                console.log("socket.on.privatemessage: error, no record of user in db");
+                console.log("socket.on.message: error, no record of user in db");
               } else {
                 var reg_id = records[0].gcm_id;
                 var push_message = new gcm.Message({
@@ -318,11 +1123,12 @@ io.on('connection', function (socket) {
               }
             }
           });
-**/
         }
       });
     }
   });
+
+**/
 
   socket.on('setChat', function(fID, fname, tID, tname) {
     userName = fname;
@@ -376,13 +1182,18 @@ io.on('connection', function (socket) {
 
 
   socket.on('disconnect', function () {
+
+  	console.log( socket.id + " has has disconnected");
     // this function has no idea what userFBID is, so nothing is deleted
     //delete clients[userFBID];
     delete clients[socket.id];
     delete uploaders[socket.id];
     delete downloaders[socket.id];
+    delete feeders[socket.id];
+    delete exchangers[socket.id];
+    delete registers[socket.id];
+    delete returning[socket.id];
     //console.log(clients);
-    console.log("someone has disconnected");
     //console.log(socket);
   });
 
@@ -436,7 +1247,7 @@ app.post('/download_my_images', function (req, res) {
           var img = gs.read(img_caption, function (err, buffer) {
             console.log('file is read', buffer);
             imgs.push(img);
-            fs.createReadStream(img).pipe(res); // this doesnt work, file is too large
+            //fs.createReadStream(img).pipe(res); // this doesnt work, file is too large
           });
         }
         res.end(JSON.stringify(imgs));
@@ -458,7 +1269,7 @@ app.post('/save_user_images', function (req, res) {
 
   var db = mongojs.connect(mongoDbUri, collections);
   var gs = gridjs(db);
-  fs.createReadStream(img).pipe(gs.createWriteStream(img_caption));
+  //fs.createReadStream(img).pipe(gs.createWriteStream(img_caption));
 
 /**
   gs.write(img_caption, new Buffer(img), function (err) {
@@ -2128,6 +2939,7 @@ app.post('/getuser', function(req, res) {
     }
   });
 });
+
 
 var port = Number(3000);
 //app.listen(port, function() {
