@@ -1,6 +1,6 @@
 {
   "name": "kandi-backend-tag",
-  "version": "0.0.64-786",
+  "version": "0.0.64-1093",
   "private": true,
   "description": "",
   "main": "web.js",
@@ -12,17 +12,21 @@
   "license": "ISC",
   "dependencies": {
     "apn": "1.6.x",
+    "base-64": "0.1.x",
     "body-parser": "1.9.x",
     "express": "^4.10.2",
+    "gridfs-stream": "1.1.x",
+    "gridjs": "0.1.x",
+    "jade": "1.1.x",
     "logfmt": "^1.1.2",
     "mongojs": "0.15.x",
-    "socket.io": "^1.2.1",
+    "multer": "^1.0.1",
+    "multiparty": "4.1.x",
     "node-gcm": "0.9.x",
-    "gridfs-stream": "1.1.x",
-    "base-64": "0.1.x",
-    "gridjs": "0.1.x",
+    "socket.io": "^1.2.1",
     "socket.io-stream": "0.8.x",
-    "stream-buffers": "2.1.x"
+    "stream-buffers": "2.1.x",
+    "imagemagick": "0.1.x"
   },
   "subdomain": "kandi",
   "engines": {

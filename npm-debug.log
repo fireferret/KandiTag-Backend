@@ -1,10 +1,10 @@
 0 info it worked if it ends with ok
-1 verbose cli [ 'node', '/usr/local/bin/npm', 'install', 'socket.io' ]
+1 verbose cli [ 'node', '/usr/local/bin/npm', 'install', 'iamgemagick' ]
 2 info using npm@1.4.28
 3 info using node@v0.10.32
 4 verbose readDependencies using package.json deps
-5 verbose cache add [ 'socket.io@^1.2.1', null ]
-6 verbose cache add name=undefined spec="socket.io@^1.2.1" args=["socket.io@^1.2.1",null]
+5 verbose cache add [ 'iamgemagick', null ]
+6 verbose cache add name=undefined spec="iamgemagick" args=["iamgemagick",null]
 7 verbose parsed url { protocol: null,
 7 verbose parsed url   slashes: null,
 7 verbose parsed url   auth: null,
@@ -14,171 +14,69 @@
 7 verbose parsed url   hash: null,
 7 verbose parsed url   search: null,
 7 verbose parsed url   query: null,
-7 verbose parsed url   pathname: 'socket.io@^1.2.1',
-7 verbose parsed url   path: 'socket.io@^1.2.1',
-7 verbose parsed url   href: 'socket.io@^1.2.1' }
-8 verbose cache add name="socket.io" spec="^1.2.1" args=["socket.io","^1.2.1"]
-9 verbose parsed url { protocol: null,
-9 verbose parsed url   slashes: null,
-9 verbose parsed url   auth: null,
-9 verbose parsed url   host: null,
-9 verbose parsed url   port: null,
-9 verbose parsed url   hostname: null,
-9 verbose parsed url   hash: null,
-9 verbose parsed url   search: null,
-9 verbose parsed url   query: null,
-9 verbose parsed url   pathname: '^1.2.1',
-9 verbose parsed url   path: '^1.2.1',
-9 verbose parsed url   href: '^1.2.1' }
-10 verbose addNamed [ 'socket.io', '^1.2.1' ]
-11 verbose addNamed [ null, '>=1.2.1-0 <2.0.0-0' ]
-12 silly lockFile 8ff672b5-socket-io-1-2-1 socket.io@^1.2.1
-13 verbose lock socket.io@^1.2.1 /Users/Jim/.npm/8ff672b5-socket-io-1-2-1.lock
-14 silly addNameRange { name: 'socket.io',
-14 silly addNameRange   range: '>=1.2.1-0 <2.0.0-0',
-14 silly addNameRange   hasData: false }
-15 verbose request where is /socket.io
-16 verbose request registry https://registry.npmjs.org/
-17 verbose request id 350eabbb93b48751
-18 verbose url raw /socket.io
-19 verbose url resolving [ 'https://registry.npmjs.org/', './socket.io' ]
-20 verbose url resolved https://registry.npmjs.org/socket.io
-21 verbose request where is https://registry.npmjs.org/socket.io
-22 info trying registry request attempt 1 at 23:47:24
-23 verbose etag "4Q2NZYLBBNCB32U4GJTGULRH3"
-24 http GET https://registry.npmjs.org/socket.io
-25 http 304 https://registry.npmjs.org/socket.io
-26 silly registry.get cb [ 304,
-26 silly registry.get   { date: 'Thu, 12 Feb 2015 07:47:24 GMT',
-26 silly registry.get     server: 'Apache',
-26 silly registry.get     via: '1.1 varnish',
-26 silly registry.get     'last-modified': 'Thu, 12 Feb 2015 07:47:24 GMT',
-26 silly registry.get     'cache-control': 'max-age=60',
-26 silly registry.get     etag: '"4Q2NZYLBBNCB32U4GJTGULRH3"',
-26 silly registry.get     age: '0',
-26 silly registry.get     'x-served-by': 'cache-lax1428-LAX',
-26 silly registry.get     'x-cache': 'HIT',
-26 silly registry.get     'x-cache-hits': '1',
-26 silly registry.get     'x-timer': 'S1423727244.572861,VS0,VE304',
-26 silly registry.get     vary: 'Accept',
-26 silly registry.get     'content-length': '0',
-26 silly registry.get     'keep-alive': 'timeout=10, max=50',
-26 silly registry.get     connection: 'Keep-Alive' } ]
-27 verbose etag https://registry.npmjs.org/socket.io from cache
-28 silly addNameRange number 2 { name: 'socket.io', range: '>=1.2.1-0 <2.0.0-0', hasData: true }
-29 silly addNameRange versions [ 'socket.io',
-29 silly addNameRange   [ '0.3.8',
-29 silly addNameRange     '0.4.0',
-29 silly addNameRange     '0.4.1',
-29 silly addNameRange     '0.5.1',
-29 silly addNameRange     '0.5.3',
-29 silly addNameRange     '0.6.0',
-29 silly addNameRange     '0.6.1',
-29 silly addNameRange     '0.6.3',
-29 silly addNameRange     '0.6.4',
-29 silly addNameRange     '0.6.5',
-29 silly addNameRange     '0.6.6',
-29 silly addNameRange     '0.6.7',
-29 silly addNameRange     '0.6.8',
-29 silly addNameRange     '0.6.9',
-29 silly addNameRange     '0.6.10',
-29 silly addNameRange     '0.6.11',
-29 silly addNameRange     '0.6.12',
-29 silly addNameRange     '0.6.14',
-29 silly addNameRange     '0.6.15',
-29 silly addNameRange     '0.6.16',
-29 silly addNameRange     '0.6.17',
-29 silly addNameRange     '0.6.18',
-29 silly addNameRange     '0.7.0',
-29 silly addNameRange     '0.7.1',
-29 silly addNameRange     '0.7.2',
-29 silly addNameRange     '0.7.3',
-29 silly addNameRange     '0.7.4',
-29 silly addNameRange     '0.7.5',
-29 silly addNameRange     '0.7.6',
-29 silly addNameRange     '0.7.7',
-29 silly addNameRange     '0.7.8',
-29 silly addNameRange     '0.7.9',
-29 silly addNameRange     '0.7.10',
-29 silly addNameRange     '0.7.11',
-29 silly addNameRange     '0.8.0',
-29 silly addNameRange     '0.8.1',
-29 silly addNameRange     '0.8.2',
-29 silly addNameRange     '0.8.3',
-29 silly addNameRange     '0.8.4',
-29 silly addNameRange     '0.8.5',
-29 silly addNameRange     '0.8.6',
-29 silly addNameRange     '0.8.7',
-29 silly addNameRange     '0.9.0',
-29 silly addNameRange     '0.9.1',
-29 silly addNameRange     '0.9.1-1',
-29 silly addNameRange     '0.9.2',
-29 silly addNameRange     '0.9.3',
-29 silly addNameRange     '0.9.4',
-29 silly addNameRange     '0.9.5',
-29 silly addNameRange     '0.9.6',
-29 silly addNameRange     '0.9.7',
-29 silly addNameRange     '0.9.8',
-29 silly addNameRange     '0.9.9',
-29 silly addNameRange     '0.9.10',
-29 silly addNameRange     '0.9.11',
-29 silly addNameRange     '0.9.12',
-29 silly addNameRange     '0.9.13',
-29 silly addNameRange     '0.9.14',
-29 silly addNameRange     '0.9.15',
-29 silly addNameRange     '0.9.16',
-29 silly addNameRange     '1.0.0-pre',
-29 silly addNameRange     '1.0.0-pre2',
-29 silly addNameRange     '1.0.0-pre3',
-29 silly addNameRange     '1.0.0-pre4',
-29 silly addNameRange     '1.0.0-pre5',
-29 silly addNameRange     '0.9.17',
-29 silly addNameRange     '1.0.0',
-29 silly addNameRange     '1.0.1',
-29 silly addNameRange     '1.0.2',
-29 silly addNameRange     '1.0.3',
-29 silly addNameRange     '1.0.4',
-29 silly addNameRange     '1.0.5',
-29 silly addNameRange     '1.0.6',
-29 silly addNameRange     '1.1.0',
-29 silly addNameRange     '1.2.0',
-29 silly addNameRange     '1.2.1',
-29 silly addNameRange     '1.3.0',
-29 silly addNameRange     '1.3.1',
-29 silly addNameRange     '1.3.2',
-29 silly addNameRange     '1.3.3' ] ]
-30 verbose addNamed [ 'socket.io', '1.3.3' ]
-31 verbose addNamed [ '1.3.3', '1.3.3' ]
-32 silly lockFile f25d1c30-socket-io-1-3-3 socket.io@1.3.3
-33 verbose lock socket.io@1.3.3 /Users/Jim/.npm/f25d1c30-socket-io-1-3-3.lock
-34 silly lockFile 6533713e-rg-socket-io-socket-io-1-3-3-tgz https://registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz
-35 verbose lock https://registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz /Users/Jim/.npm/6533713e-rg-socket-io-socket-io-1-3-3-tgz.lock
-36 verbose addRemoteTarball [ 'https://registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz',
-36 verbose addRemoteTarball   '2a1b62bf3a0205488d3a19573b53648262770f2b' ]
-37 info retry fetch attempt 1 at 23:47:24
-38 verbose fetch to= /var/folders/c1/5f7mdl512fq92fwbg497yb300000gn/T/npm-86241-Ef1zQL0Y/registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz
-39 http GET https://registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz
-40 http 200 https://registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz
-41 silly lockFile 6533713e-rg-socket-io-socket-io-1-3-3-tgz https://registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz
-42 silly lockFile 6533713e-rg-socket-io-socket-io-1-3-3-tgz https://registry.npmjs.org/socket.io/-/socket.io-1.3.3.tgz
-43 silly lockFile f25d1c30-socket-io-1-3-3 socket.io@1.3.3
-44 silly lockFile f25d1c30-socket-io-1-3-3 socket.io@1.3.3
-45 silly lockFile 8ff672b5-socket-io-1-2-1 socket.io@^1.2.1
-46 silly lockFile 8ff672b5-socket-io-1-2-1 socket.io@^1.2.1
-47 error Error: EACCES, mkdir '/Users/Jim/.npm/socket.io/1.3.3'
-47 error  { [Error: EACCES, mkdir '/Users/Jim/.npm/socket.io/1.3.3']
-47 error   errno: 3,
-47 error   code: 'EACCES',
-47 error   path: '/Users/Jim/.npm/socket.io/1.3.3',
-47 error   parent: 'kandi-backend-tag' }
-48 error Please try running this command again as root/Administrator.
-49 error System Darwin 14.0.0
-50 error command "node" "/usr/local/bin/npm" "install" "socket.io"
-51 error cwd /Users/Jim/Development/kandi-servers-node
-52 error node -v v0.10.32
-53 error npm -v 1.4.28
-54 error path /Users/Jim/.npm/socket.io/1.3.3
-55 error code EACCES
-56 error errno 3
-57 error stack Error: EACCES, mkdir '/Users/Jim/.npm/socket.io/1.3.3'
-58 verbose exit [ 3, true ]
+7 verbose parsed url   pathname: 'iamgemagick',
+7 verbose parsed url   path: 'iamgemagick',
+7 verbose parsed url   href: 'iamgemagick' }
+8 silly lockFile d271a48e-iamgemagick iamgemagick
+9 verbose lock iamgemagick /Users/Jim/.npm/d271a48e-iamgemagick.lock
+10 silly lockFile d271a48e-iamgemagick iamgemagick
+11 silly lockFile d271a48e-iamgemagick iamgemagick
+12 verbose addNamed [ 'iamgemagick', '' ]
+13 verbose addNamed [ null, '*' ]
+14 silly lockFile 28ccf647-iamgemagick iamgemagick@
+15 verbose lock iamgemagick@ /Users/Jim/.npm/28ccf647-iamgemagick.lock
+16 silly addNameRange { name: 'iamgemagick', range: '*', hasData: false }
+17 verbose request where is /iamgemagick
+18 verbose request registry https://registry.npmjs.org/
+19 verbose request id 6686ed44c2616648
+20 verbose url raw /iamgemagick
+21 verbose url resolving [ 'https://registry.npmjs.org/', './iamgemagick' ]
+22 verbose url resolved https://registry.npmjs.org/iamgemagick
+23 verbose request where is https://registry.npmjs.org/iamgemagick
+24 info trying registry request attempt 1 at 19:07:50
+25 http GET https://registry.npmjs.org/iamgemagick
+26 http 404 https://registry.npmjs.org/iamgemagick
+27 verbose headers { server: 'CouchDB/1.5.0 (Erlang OTP/R16B03)',
+27 verbose headers   'content-type': 'application/json',
+27 verbose headers   'cache-control': 'max-age=0',
+27 verbose headers   'content-length': '51',
+27 verbose headers   'accept-ranges': 'bytes',
+27 verbose headers   date: 'Mon, 03 Aug 2015 02:07:51 GMT',
+27 verbose headers   via: '1.1 varnish',
+27 verbose headers   age: '0',
+27 verbose headers   connection: 'keep-alive',
+27 verbose headers   'x-served-by': 'cache-lax1431-LAX',
+27 verbose headers   'x-cache': 'MISS',
+27 verbose headers   'x-cache-hits': '0',
+27 verbose headers   'x-timer': 'S1438567671.197833,VS0,VE46' }
+28 silly registry.get cb [ 404,
+28 silly registry.get   { server: 'CouchDB/1.5.0 (Erlang OTP/R16B03)',
+28 silly registry.get     'content-type': 'application/json',
+28 silly registry.get     'cache-control': 'max-age=0',
+28 silly registry.get     'content-length': '51',
+28 silly registry.get     'accept-ranges': 'bytes',
+28 silly registry.get     date: 'Mon, 03 Aug 2015 02:07:51 GMT',
+28 silly registry.get     via: '1.1 varnish',
+28 silly registry.get     age: '0',
+28 silly registry.get     connection: 'keep-alive',
+28 silly registry.get     'x-served-by': 'cache-lax1431-LAX',
+28 silly registry.get     'x-cache': 'MISS',
+28 silly registry.get     'x-cache-hits': '0',
+28 silly registry.get     'x-timer': 'S1438567671.197833,VS0,VE46' } ]
+29 silly lockFile 28ccf647-iamgemagick iamgemagick@
+30 silly lockFile 28ccf647-iamgemagick iamgemagick@
+31 error 404 404 Not Found: iamgemagick
+31 error 404
+31 error 404 'iamgemagick' is not in the npm registry.
+31 error 404 You should bug the author to publish it
+31 error 404 It was specified as a dependency of 'kandi-backend-tag'
+31 error 404
+31 error 404 Note that you can also install from a
+31 error 404 tarball, folder, or http url, or git url.
+32 error System Darwin 14.0.0
+33 error command "node" "/usr/local/bin/npm" "install" "iamgemagick"
+34 error cwd /Users/Jim/Development/kandi-servers-node
+35 error node -v v0.10.32
+36 error npm -v 1.4.28
+37 error code E404
+38 verbose exit [ 1, true ]
