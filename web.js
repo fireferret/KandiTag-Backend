@@ -326,6 +326,8 @@ app.post('/upload_image', function (req, res) {
   var filepath;
   var filename;
 
+  var data;
+
   form.parse(req, function (err, fields, files) {
 
     console.log(files);
@@ -358,7 +360,19 @@ app.post('/upload_image', function (req, res) {
         // will need to create a new MongoId to save images
 
         //var stream = fs.createReadStream(filepath).pipe(gs.createWriteStream({"filename": filename}));
-        fs.createReadStream(filepath).pipe(gs.createWriteStream(filename));
+        //fs.createReadStream(filepath).pipe(gs.createWriteStream(filename)); // this one works
+
+        var read = fs.createReadStream(filepath);
+
+        read.pipe(gs.createWriteStream(filename)); // works
+
+        read.on('data', function (data) {
+          data += data;
+        });
+
+        read.on('end', function() {
+          console.log("end of readstream ", filename);
+        });
 
     });
 
