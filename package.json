@@ -1,6 +1,6 @@
 {
   "name": "kandi-backend-tag",
-  "version": "0.0.64-1097",
+  "version": "0.0.64-1180",
   "private": true,
   "description": "",
   "main": "web.js",
@@ -26,7 +26,8 @@
     "socket.io": "^1.2.1",
     "socket.io-stream": "0.8.x",
     "stream-buffers": "2.1.x",
-    "imagemagick": "0.1.x"
+    "imagemagick": "0.1.x",
+    "gm": "1.18.x"
   },
   "subdomain": "kandi",
   "engines": {

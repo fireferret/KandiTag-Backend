@@ -11,7 +11,8 @@ var fs = require('fs');
 var multipart = require('multiparty');
 
 
-app.set('port', process.env.PORT || 3000);
+//app.set('port', process.env.PORT || 3000);
+//app.set('port', process.env.PORT || 8080);
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
 app.use(bodyParser.json());
@@ -35,8 +36,9 @@ var Grid = require('gridfs-stream');
 
 var db = mongojs.connect(mongoDbUri, collections);
 
-var io = require('socket.io').listen(server);
-var ss = require('socket.io-stream');
+var io = require('socket.io').listen(http);
+
+var gm = require('gm');
 
 var im = require('imagemagick');
 
@@ -56,6 +58,7 @@ app.get('/', function(req, res) {
 **/
 
 var clients = {};
+var uploaders = {};
 io.on('connection', function (socket) {
 
   socket.on('sign_in', function (kt_id) {
@@ -65,9 +68,59 @@ io.on('connection', function (socket) {
     clients[kt_id].emit('sign_in', "you are connected");
   });
 
-    socket.on('disconnect', function () {
+  socket.on('disconnect', function () {
     console.log( socket.id + " has has disconnected");
     delete clients[socket.id];
+  });
+
+  socket.on('upload_image', function (kt_id, img, filename) {
+
+    if (!uploaders[kt_id]) {
+      uploaders[kt_id] = socket;
+      socket.id = kt_id;
+      console.log(kt_id, " is attempting to upload_image");
+    }
+
+    console.log(img);
+    var gs = gridjs(db);
+
+    gs.write(filename, new Buffer(img), function(err) {
+
+      if (err) {
+        console.log(err);
+        return;
+      }
+
+      db.collection('fs.files').find({"filename": filename}, function (err, records) {
+              if (err) {
+                console.log(err);
+                socket.disconnect();
+                return;
+              }
+
+              var record_id = records[0]._id;
+              console.log(found_id);
+
+              // got emmmm
+              db.collection('fs.files').update({_id: mongojs.ObjectId(record_id)}, {$set: {'metadata': {"kt_id" : kt_id}}}, function (error) {
+
+                if (error) {
+                  console.log(error);
+                  return;
+                }
+
+                console.log("successfully added metadata");
+
+              });
+
+              console.log("found image in db with metadata");
+              (uploaders[kt_id]).emit('upload_image', "saved into the db as " + record_id);
+              socket.disconnect();
+
+            });
+      
+    });
+
   });
 
 });
@@ -138,10 +191,13 @@ app.get('/kt_media', function (req, res) {
 // todo will need a get method to get file ids for media items
 
 app.get('/kt_media/:id', function (req, res) {
+
   var media_id = req.params.id;
 
   var db = mongojs.connect(mongoDbUri, collections);
   var gs = gridjs(db);
+
+  // TODO need to make sure that the image is not a profile image
 
   db.collection('fs.files').find({_id: mongojs.ObjectId(media_id)}, function (err, file) {
     if (err) {
@@ -150,15 +206,18 @@ app.get('/kt_media/:id', function (req, res) {
     }
 
     var filename = file[0].filename;
-    console.log(filename);
-    console.log(__dirname + filename);
+    console.log("getting image: ", filename);
+    //console.log(__dirname + filename);
 
     //var img = gs.createReadStream(filename).pipe(process.stdout); // uncomment is gs.read does not work
     //res.writeHead('200', {'Content-Type': 'image/png', 'Content-Length': img.length });
     //res.end(img, 'binary'); 
 
-    var img = gs.read(filename, function (err, buffer) {
-      console.log('file is read', buffer);
+
+    gs.read(filename, function (err, buffer) {
+      //console.log('file is read', buffer);
+
+      console.log("rendering image: ", filename);
 
       im.resize({
         srcData: buffer,
@@ -175,27 +234,6 @@ app.get('/kt_media/:id', function (req, res) {
       });
 
     }); 
-    //res.json(file);
-
-    /**
-
-    im.resize({
-      srcPath: filename,
-      width: 120
-    }, function (err, stdout, stderr) {
-      if (err) {
-        console.log("error:");
-        console.log(err);
-        return;
-      }
-
-      var image = fs.writeFileSync("new" + filename, stdout, 'binary');
-
-      res.writeHead('200', {'Content-Type': 'image/png', 'Content-Length': image.length });
-      res.end(image, 'binary');
-
-    }); **/
-
 
   });
   
@@ -317,6 +355,8 @@ app.post('/save_device_token_ios', function (req, res) {
 
 app.post('/upload_image', function (req, res) {
 
+  console.log("upload image has been called");
+
   var db = mongojs.connect(mongoDbUri, collections);
   var gs = gridjs(db);
 
@@ -326,7 +366,97 @@ app.post('/upload_image', function (req, res) {
   var filepath;
   var filename;
 
-  var data;
+  form.parse(req, function (err, fields, files) {
+
+    console.log("parsing uploaded file");
+    //console.log(files);
+
+    if (err) {
+        res.end("invalid request " + err.message, 400);
+        return;
+    }
+
+    Object.keys(fields).forEach(function(name) {
+        //console.log('Got field named ' + name);
+        console.log('The value of the field is ' + fields[name]);
+
+        if (name == 'kt_id') {
+          kt_id = fields[name];
+          console.log("uploader's kt_id: ", kt_id);
+        }
+
+    });
+
+    Object.keys(files).forEach(function (name) {
+        //console.log('Got file named ' + name);
+        console.log('The file name is ' + files[name][0].originalFilename);
+        console.log('The file path is ' + files[name][0].path);
+
+        filename = files[name][0].originalFilename + ".png";
+        filepath = files[name][0].path;
+
+        var write = gs.createWriteStream(filename, { 
+          metadata: { 'kt_id' : kt_id}
+        });
+
+        write.on('error', function (err) {
+          console.log("error in write");
+        });
+
+        write.on('close', function() {
+          console.log("write on close");
+        });
+
+        fs.createReadStream(filepath).pipe(write);
+
+        res.send("success");
+
+    });
+
+    var db = mongojs.connect(mongoDbUri, collections);
+
+    db.collection('fs.files').find({'filename': filename}, function (err, records) {
+
+          if (err) {
+            console.log("error finding entry in db");
+            return;
+          }
+
+          console.log("found entry in db");
+
+        });
+
+  });
+
+  form.on('close', function() {
+
+    console.log("upload complete");
+
+    if (filename != null) {
+      console.log("on close filename: ", filename);
+    }
+
+  });
+
+  console.log("is everything finished?");
+
+  console.log("this should be called at the very end of the upload");
+
+});
+
+
+app.post('/upload_profile_image', function (req, res) {
+
+  var db = mongojs.connect(mongoDbUri, collections);
+  var gs = gridjs(db);
+
+  var form = new multipart.Form();
+
+  var kt_id;
+  var filepath;
+  var filename;
+
+  var data = '';
 
   form.parse(req, function (err, fields, files) {
 
@@ -355,13 +485,6 @@ app.post('/upload_image', function (req, res) {
         filename = files[name][0].originalFilename + ".png";
         filepath = files[name][0].path;
 
-        // TODO check that metadata can be saved
-
-        // will need to create a new MongoId to save images
-
-        //var stream = fs.createReadStream(filepath).pipe(gs.createWriteStream({"filename": filename}));
-        //fs.createReadStream(filepath).pipe(gs.createWriteStream(filename)); // this one works
-
         var read = fs.createReadStream(filepath);
 
         read.pipe(gs.createWriteStream(filename)); // works
@@ -371,7 +494,8 @@ app.post('/upload_image', function (req, res) {
         });
 
         read.on('end', function() {
-          console.log("end of readstream ", filename);
+          console.log(data);
+          console.log("finished writing");
         });
 
     });
@@ -414,7 +538,8 @@ app.post('/addmeta', function (req, res) {
 
 });
 
-var server = app.listen(port);
+//var server = app.listen(port);
+http.listen(8080);
 
 /**
 app.listen(port, function() {
