@@ -71,6 +71,7 @@ io.on('connection', function (socket) {
   socket.on('disconnect', function () {
     console.log( socket.id + " has has disconnected");
     delete clients[socket.id];
+    delete uploaders[socket.id];
   });
 
   socket.on('upload_image', function (kt_id, img, filename) {
@@ -81,31 +82,33 @@ io.on('connection', function (socket) {
       console.log(kt_id, " is attempting to upload_image");
     }
 
-    console.log(img);
+    //console.log(img);
+    var db = mongojs.connect(mongoDbUri, collections);
     var gs = gridjs(db);
 
     gs.write(filename, new Buffer(img), function(err) {
 
       if (err) {
-        console.log(err);
+        console.log("error writing image");
         return;
       }
 
       db.collection('fs.files').find({"filename": filename}, function (err, records) {
+
               if (err) {
-                console.log(err);
-                socket.disconnect();
+                console.log("error finding image in db");
+                //socket.disconnect();
                 return;
               }
 
               var record_id = records[0]._id;
-              console.log(found_id);
+              console.log(record_id);
 
               // got emmmm
               db.collection('fs.files').update({_id: mongojs.ObjectId(record_id)}, {$set: {'metadata': {"kt_id" : kt_id}}}, function (error) {
 
                 if (error) {
-                  console.log(error);
+                  console.log("error updating image metadata");
                   return;
                 }
 
@@ -115,11 +118,13 @@ io.on('connection', function (socket) {
 
               console.log("found image in db with metadata");
               (uploaders[kt_id]).emit('upload_image', "saved into the db as " + record_id);
-              socket.disconnect();
+              //socket.disconnect();
 
             });
       
     });
+
+  //socket.disconnect();
 
   });
 
@@ -131,13 +136,30 @@ app.get('/', function (req, res) {
 
 // set up routes
 app.get('/kt_users', function (req, res) {
-  db.kt_users.find({}, function (err, users) {
+
+  db.kt_users.find({}, function (err, records) {
+
     if (err) {
       console.log("no users found");
       return;
     }
-    res.json(users);
+
+    var results = [];
+
+    for (var i = 0; i < records.length; i++) {
+
+      results.push({
+        kt_id: records[i]._id,  // this returns the user's kt_id and name, and later on the nickname
+        name: records[i].username
+      });
+
+    }
+
+    //res.json(records);
+    res.json(results); // this will display the results
+
   });
+
 });
 
 app.get('/kt_users/:id', function (req, res) {
@@ -151,36 +173,66 @@ app.get('/kt_users/:id', function (req, res) {
   });
 });
 
+app.get('/friends', function (req, res) {
+  var query = req.body;
+  var kt_id = query.kt_id;
+
+  console.log(kt_id + " is getting friends");
+
+  var db = mongojs.connect(mongoDbUri, collections);
+
+  // query db for users who is friends with given kt_id
+
+  // TODO this should be called by a service to download kt_ids and info of friends (should only be used by returning user)
+
+});
+
+
 app.get('/kt_media', function (req, res) {
 
-  db.collection('fs.files').find({}, function (err, records) {
+  console.log("get kt_media called");
+
+  // only returns media files, does not show profile images
+
+  db.collection('fs.files').find({"metadata.kt_id":{$exists: true}}, function (err, records) {
 
     if (err) {
       console.log(err);
       return;
     }
 
-    var _ids = [];
-
-    //var files = [];
+    var _ids = []; // what is the difference between [] and {} ?
+    var results = [];
 
     // this will create the array in chronological order, with latest first
+    // TODO provide a limit to how many items are given in the response, when the user scrolls further down and needs older items, then rerun query but start
+    // the query at the last provided item
+
     for (var i = records.length - 1; i >= 0; i--) {
-      _ids.push(records[i]._id);
+      //_ids.push(records[i]._id); 
 
-/**
-      files.push({
+      results.push({
         _id: records[i]._id,
-        metadata: records[i].metadata
-        //kt_id: records[i].metadata.kt_id
+        kt_id: records[i].metadata.kt_id // will need to add caption later
       });
-**/
 
-      // TODO will need to sort these by the upload date before sending the response
+      /**
+
+      res.write(JSON.stringify({
+        _id: records[i]._id,
+        kt_id: records[i].metadata.kt_id  // this should continously write out each item and when the loop is finished then res.end will be called
+      }));  **/
+
+      // this method sends an entire list of entries all at once
+      // need to find a way to send individual json items
+
     }
 
     //res.json(files);
-    res.json(_ids);
+    //res.json(_ids);  // this returns list of _ids
+    res.json(results); // this should return a list of key value pairs
+
+    //res.end(); // this is called if res.write is called
 
     //res.json(records);
 
@@ -199,7 +251,7 @@ app.get('/kt_media/:id', function (req, res) {
 
   // TODO need to make sure that the image is not a profile image
 
-  db.collection('fs.files').find({_id: mongojs.ObjectId(media_id)}, function (err, file) {
+  db.collection('fs.files').find({_id: mongojs.ObjectId(media_id), "metadata.kt_id": {$exists: true}}, function (err, file) {
     if (err) {
       console.log(err);
       return;
@@ -231,6 +283,7 @@ app.get('/kt_media/:id', function (req, res) {
 
         res.writeHead('200', {'Content-Type': 'image/png', 'Content-Length': stdout.length });
         res.end(stdout, 'binary');
+
       });
 
     }); 
@@ -238,6 +291,73 @@ app.get('/kt_media/:id', function (req, res) {
   });
   
 });
+
+// TODO get profile image method is not working
+
+app.get('/profile_image/:id', function (req, res) {
+
+  var kt_id = req.params.id;
+
+  var db = mongojs.connect(mongoDbUri, collections);
+  var gs = gridjs(db);
+
+  db.collection('fs.files').find({"filename": kt_id, "metadata.profile_image": kt_id}, function (err, records) {
+
+    if (err) {
+      console.log("error finding profile image for ", kt_id);
+      //res.send('<html><body><h1>No Profile Image Found</h1></body></html>');
+      return;
+    }
+
+    gs.read(kt_id, function (err, buffer) {
+
+      console.log("rendering profile image for ", kt_id);
+
+      im.resize({
+        srcData: buffer,
+        width: 250,
+        quality: 1
+      }, function (err, stdout, stderr) {
+        if (err) {
+          console.log("error: ", err);
+          return;
+        }
+
+        res.writeHead('200', {'Content-Type': 'image/png', 'Content-Length': stdout.length });
+        res.end(stdout, 'binary');
+
+      });
+
+    });
+
+  });
+
+});
+
+app.get('/archived_messages', function (req, res) {
+  var query = req.body;
+  var kt_id = query.kt_id;
+
+  var db = mongojs.connect(mongoDbUri, collections);
+
+  console.log(kt_id, " is attempting to download archived messages");
+  res.setHeader('Content-Type', 'application/json');
+
+  db.kt_message.find({$or: [{to_id: kt_id}, {from_id: kt_id}]}, function (err, records) {
+
+    if (err) {
+      console.log("error finding entries in db: ", err);
+      return;
+    }
+
+
+
+    // TODO the entries are here, now parse them and send them back individually
+    // on the client side a service should be used to request this method
+
+  });
+
+}); 
 
 
 app.post('/login', function (req, res) {
